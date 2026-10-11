@@ -131,15 +131,21 @@ describe('computeAssetGcPlan: 幂等与不可变', () => {
     expect(d1).toEqual(snapshot);
   });
 
-  it('坏输入（缺字段/非数组）不抛', () => {
-    expect(() =>
-      computeAssetGcPlan({
-        docs: undefined as unknown as KBNoteDoc[],
-        trashDocs: undefined,
-        conflictCopyRefs: undefined,
-        knownAssets: undefined,
-      }),
-    ).not.toThrow();
+  it('坏输入（缺字段/非数组）不抛，且产出空计划（零回收、零引用）', () => {
+    const plan = computeAssetGcPlan({
+      docs: undefined as unknown as KBNoteDoc[],
+      trashDocs: undefined,
+      conflictCopyRefs: undefined,
+      knownAssets: undefined,
+    });
+    // 安全契约：坏输入绝不产出待回收集合——否则 emptyTrash / 物理清除会误删 blob。
+    // reachable/reclaimable/refcount 三者必须全空；watermark=0（vv 缺失）。
+    expect(plan.reachable.size).toBe(0);
+    expect(plan.reclaimable.size).toBe(0);
+    expect(plan.refcount.size).toBe(0);
+    expect(plan.watermark).toBe(0);
+    // reclaimable 为空时物理清除许可为真也是空操作（无可删），锁此真实契约。
+    expect(plan.mayPhysicallyPurge).toBe(true);
   });
 });
 
