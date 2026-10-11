@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import type { DocMeta, KBNoteDoc, SnapshotMeta, TrashDocMeta } from '@drawpaper/core';
 import { pruneSnapshotsToLatest, SNAPSHOT_KEEP } from '@drawpaper/core';
 import { deleteAsset, getAsset, putAsset } from './opfs';
-import { orphansAfterPurge, moveOrphansToTrash } from './asset-gc-web';
+import { orphansAfterPurge, orphansAfterEmptyTrash, moveOrphansToTrash } from './asset-gc-web';
 
 /**
  * Dexie/IndexedDB 持久化：
@@ -155,12 +155,20 @@ export class DexieStorageAdapter {
     await db.trash.delete(id);
   }
 
+  /**
+   * 批量清空回收站：先收集全部待删行并清空 trash 表，再统一做一次批量资产 GC。
+   *
+   * 为什么不能像 purgeTrash 那样逐行算：循环内逐行调 orphansAfterPurge 时 db.trash
+   * 尚未清空，兄弟 trash 行会互相保活对方共享的资产，导致跨 trash 文档共享的 blob
+   * 永不判孤儿、clear 后永久滞留 OPFS 活跃区。改为「先清表、再批量算孤儿集」后，
+   * remainingTrashDocs 恒为空，共享资产正确回收。
+   */
   async emptyTrash(): Promise<void> {
     const rows = await db.trash.toArray();
-    for (const row of rows) {
-      const orphans = await orphansAfterPurge(row);
-      await moveOrphansToTrash(orphans, row.id);
-    }
     await db.trash.clear();
+    if (rows.length > 0) {
+      const orphans = await orphansAfterEmptyTrash(rows);
+      await moveOrphansToTrash(orphans, 'empty-trash');
+    }
   }
 }
