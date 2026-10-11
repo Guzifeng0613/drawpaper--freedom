@@ -83,23 +83,31 @@ async function loadFlowDoc(page: Page): Promise<void> {
       (window as unknown as { __drawpaper__: { loadFixture: (d: unknown) => void } }).__drawpaper__.loadFixture(doc);
     });
 
-  // 有界轮询：确认 state 真为 wave21-flow 且 6 节点；被 bootstrap 迟到 openDoc 冲掉则重灌，最多 3 次。
+  // 有界轮询：确认 state 真为 wave21-flow 且 6 节点；被 bootstrap 迟到 openDoc 冲掉则重灌。
   const check = () =>
     page.evaluate(() => {
       const h = (window as unknown as { __drawpaper__?: { getState: () => { doc: { id: string; nodes: unknown[] } } } }).__drawpaper__;
       return !!h && h.getState().doc.id === 'wave21-flow' && h.getState().doc.nodes.length === 6;
     });
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // headless WebKitGTK 上 bootstrap 的异步 listDocs→openDoc/newDoc 序列比 chromium 更慢地
+  // 后到，在 chromium 的 3 轮 / 10s 落位 / 2s 观察窗内仍会把 fixture 冲掉。仅在 WEBKIT_FULL
+  // 下加大重灌轮次、落位 poll 与观察窗（引擎加固，不改任何断言意图）；chromium 路径保持原值。
+  const webkitFull = !!process.env.WEBKIT_FULL;
+  const maxAttempts = webkitFull ? 6 : 3;
+  const settleMs = webkitFull ? 20_000 : 10_000;
+  const observeMs = webkitFull ? 4_000 : 2_000;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await loadOnce();
-    // fixture 落位（最多 10s）。
-    await expect.poll(check, { timeout: 10_000 }).toBe(true);
+    // fixture 落位。
+    await expect.poll(check, { timeout: settleMs }).toBe(true);
     // 观察窗：bootstrap 的 listDocs→newDoc/openDoc 是异步后到，可能把 fixture 冲掉；
     // 窗后复查仍为真才算稳，否则重灌（bootstrap 已在窗口内跑完，下轮落位即钉住）。
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(observeMs);
     if (await check()) break;
-    if (attempt === 2) {
-      throw new Error('loadFlowDoc：fixture 被 bootstrap openDoc 连续 3 轮覆盖，state 未钉住');
+    if (attempt === maxAttempts - 1) {
+      throw new Error('loadFlowDoc：fixture 被 bootstrap openDoc 连续多轮覆盖，state 未钉住');
     }
   }
   await page.keyboard.press('Control+0');
