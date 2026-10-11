@@ -49,7 +49,6 @@ export function isQuotaError(err: unknown): boolean {
   const name = (err as { name?: string } | null | undefined)?.name;
   if (
     name === 'QuotaExceededError' ||
-    name === 'QuotaExceededError' ||
     name === 'NS_ERROR_FILE_NO_DEVICE_SPACE' ||
     name === 'NS_ERROR_DOM_FILESYSTEM_NO_MODIFICATION_ALLOWED_ERR'
   ) {
