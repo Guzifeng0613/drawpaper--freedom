@@ -198,14 +198,24 @@ test.describe('§9 性能', () => {
     await page.locator('.react-flow__node').first().waitFor({ timeout: TTI_2000_MAX_MS });
     const nodesRenderedMs = Date.now() - t0;
 
-    // 2) 一次画布交互在预算内响应：Ctrl+F 打开搜索面板。
-    const tInteractionStart = Date.now();
-    await page.keyboard.press('Control+f');
-    await page.locator('.absolute.right-4.top-14').first().waitFor({ timeout: INTERACTION_BUDGET_MS });
-    const interactionMs = Date.now() - tInteractionStart;
+    // 2) 画布交互在预算内响应：Ctrl+F 打开搜索面板。共享 runner 偶发调度抖动会让
+    // 单次采样超阈值（曾见 1539 vs 1500 的噪声红），取 3 次开/关采样的中位数——
+    // 系统性变慢（真回归）会抬高全部样本，中位数仍判红，不放宽阈值意图。
+    const interactionSamples: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const tInteractionStart = Date.now();
+      await page.keyboard.press('Control+f');
+      await page.getByTestId('search-panel').waitFor({ timeout: INTERACTION_BUDGET_MS });
+      interactionSamples.push(Date.now() - tInteractionStart);
+      if (i < 2) {
+        await page.keyboard.press('Escape');
+        await page.getByTestId('search-panel').waitFor({ state: 'hidden', timeout: 5000 });
+      }
+    }
+    const interactionMs = [...interactionSamples].sort((a, b) => a - b)[1];
 
     const ttiMs = Date.now() - t0;
-    console.log('TTI_2000_MS', ttiMs, 'nodesRenderedMs', nodesRenderedMs, 'interactionMs', interactionMs);
+    console.log('TTI_2000_MS', ttiMs, 'nodesRenderedMs', nodesRenderedMs, 'interactionMs', interactionMs, 'samples', interactionSamples);
 
     // 分阶段采样（long tasks / buildIndex 等由 dev-hooks 写入 __perfStages）。
     await page.waitForTimeout(3000);
