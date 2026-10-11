@@ -251,12 +251,42 @@ describe('pruneTombstones: 空状态 / 无墓碑 / 坏输入', () => {
     expect(r.prunedCount).toBe(0);
   });
 
-  it('坏 options（0/负数/NaN）回退默认阈值，不抛', () => {
-    const d = docWith({ vv: { cA: 100, cB: 100 } });
-    expect(() => pruneTombstones(d, { maxTombstones: 0 })).not.toThrow();
-    expect(() => pruneTombstones(d, { maxTombstones: -5 })).not.toThrow();
-    expect(() => pruneTombstones(d, { maxTombstones: NaN as unknown as number })).not.toThrow();
+  it('坏 options：负数/NaN 回退默认阈值 1000（1500 条合格墓碑 → 裁 500 留 1000）', () => {
+    // vv.cA=1500 → watermark=1500；造 1500 条 lamport 1..1500 的墓碑，全部安全可裁。
+    // 真回退到默认 1000：1500>1000 → 最老优先裁到 1000（裁 500）。
+    // 若回退失效（把 -5/NaN 当真值），会裁光 1500 条；此用例双向锁死回退语义。
+    const tombs: Record<string, Mark> = {};
+    for (let i = 1; i <= 1500; i++) tombs[`n${i}`] = [i, 'cA'];
+    const d = docWith({ vv: { cA: 1500 }, nodeToms: tombs });
+    for (const bad of [-5, NaN as unknown as number]) {
+      const r = pruneTombstones(d, { maxTombstones: bad });
+      expect(r.watermark).toBe(1500);
+      expect(r.prunedCount).toBe(500);
+      expect(r.retainedCount).toBe(1000);
+    }
     expect(DEFAULT_MAX_TOMBSTONES).toBe(1000);
+  });
+
+  it('坏 options：负数/NaN 回退默认阈值 1000（500 条合格墓碑 → 阈值内一条不裁）', () => {
+    // 正向锁：500 ≤ 回退后的 1000 → 不裁；若回退失效把 -5 当真值，500>-5 会裁光。
+    const tombs: Record<string, Mark> = {};
+    for (let i = 1; i <= 500; i++) tombs[`n${i}`] = [i, 'cA'];
+    const d = docWith({ vv: { cA: 500 }, nodeToms: tombs });
+    for (const bad of [-5, NaN as unknown as number]) {
+      const r = pruneTombstones(d, { maxTombstones: bad });
+      expect(r.prunedCount).toBe(0);
+      expect(r.retainedCount).toBe(500);
+    }
+  });
+
+  it('options=0 按字面阈值 0 处理（裁光全部合格墓碑，不回退默认）', () => {
+    // 与回退分支区分：0 是合法阈值（= 裁到 0），不是坏输入。锁死双分支。
+    const tombs: Record<string, Mark> = {};
+    for (let i = 1; i <= 1500; i++) tombs[`n${i}`] = [i, 'cA'];
+    const d = docWith({ vv: { cA: 1500 }, nodeToms: tombs });
+    const r = pruneTombstones(d, { maxTombstones: 0 });
+    expect(r.prunedCount).toBe(1500);
+    expect(r.retainedCount).toBe(0);
   });
 
   it('doc.sync 缺失时按空块处理，不抛', () => {
