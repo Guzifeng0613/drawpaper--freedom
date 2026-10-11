@@ -36,7 +36,7 @@ export function BlockDeleteConfirmDialog() {
         </DialogHeader>
 
         {req && req.incoming.length > 0 ? (
-          <div className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+          <div className="mt-1 rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-700">
             <p className="font-medium">{req.incoming.length} 处链接指向本块：</p>
             <ul className="mt-1 list-disc pl-4">
               {req.incoming.map((s, i) => (
@@ -73,7 +73,7 @@ export function BlockDeleteConfirmDialog() {
               保留为悬挂链接
             </Button>
             <Button
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-red-700 text-white hover:bg-red-800"
               onClick={() => resolveBlockDeleteRequest(editorStore, 'remove')}
             >
               一并移除这些链接

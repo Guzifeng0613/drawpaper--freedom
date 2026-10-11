@@ -213,4 +213,161 @@ test.describe('Wave11 阶段 C axe 自动化无障碍扫描', () => {
     await page.waitForTimeout(200);
     await assertTarget(page, '文档列表面板');
   });
+
+  // ============================================================
+  // Wave26：补 Radix Dialog 弹层 axe 扫描护栏（10 个此前未覆盖的弹层）。
+  // 口径与上方一致：critical/serious 必须为 0；moderate 打印供入档。
+  // ============================================================
+
+  test('弹层·存储空间不足引导（StorageQuotaDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.evaluate(() => window.__drawpaper__!.quotaResetThrottle());
+    await page.evaluate(() => window.__drawpaper__!.quotaRaise());
+    await expect(page.getByText('本地存储空间不足')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'StorageQuotaDialog');
+    await page.evaluate(() => window.__drawpaper__!.quotaClose());
+  });
+
+  test('弹层·连线冲突裁决（ConflictDialog，成环触发）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.evaluate(() => {
+      window.__drawpaper__!.invoke('addNode', 'text', 50, 200); // A
+      window.__drawpaper__!.invoke('addNode', 'text', 500, 200); // B
+    });
+    await page.waitForTimeout(400);
+    const [A, B] = (await page.evaluate(() =>
+      window.__drawpaper__!.getState().doc.nodes.map((n) => n.id),
+    )) as [string, string];
+    // A→B 先落一条边，再 B→A 成环 → 弹裁决框。
+    await page.evaluate(([a, b]) => window.__drawpaper__!.invoke('addEdge', a, b), [A, B]);
+    await page.waitForTimeout(300);
+    await page.evaluate(([a, b]) => window.__drawpaper__!.invoke('addEdge', b, a), [A, B]);
+    await expect(page.getByText('连线冲突，请裁决')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'ConflictDialog');
+    // 取消关闭。
+    await page.getByRole('button', { name: '取消' }).click();
+    await expect(page.getByText('连线冲突，请裁决')).toBeHidden({ timeout: 3000 });
+  });
+
+  test('弹层·回收站（TrashDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.getByRole('button', { name: '文档', exact: true }).click();
+    await page.getByRole('menuitem', { name: /回收站/ }).click();
+    await expect(page.getByRole('heading', { name: '回收站' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'TrashDialog');
+  });
+
+  test('弹层·标签管理（TagManagerDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.locator('button[title="标签管理"]').click();
+    await expect(page.getByRole('heading', { name: '标签管理' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'TagManagerDialog');
+  });
+
+  test('弹层·模板库（TemplatesDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.getByRole('button', { name: '文档', exact: true }).click();
+    await page.getByRole('menuitem', { name: /从模板新建/ }).click();
+    await expect(page.getByRole('heading', { name: '模板库' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'TemplatesDialog');
+  });
+
+  test('弹层·快照历史（SnapshotsDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.getByRole('button', { name: '文档', exact: true }).click();
+    await page.getByRole('menuitem', { name: /快照历史/ }).click();
+    await expect(page.getByRole('heading', { name: '快照历史' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'SnapshotsDialog');
+  });
+
+  test('弹层·删块跨文档反链确认（BlockDeleteConfirmDialog）', async ({ page }) => {
+    // 构造 docB 目标块 + docA 内嵌 docRef 指向它 → 在 docB 删除目标块触发确认框。
+    await waitForApp(page);
+    async function seedDoc(d: {
+      id: string; title: string; blockId: string; text: string;
+      ref?: { targetDocId: string; targetNodeId: string; targetTitle: string };
+    }) {
+      await page.evaluate((d) => {
+        const h = window.__drawpaper__!;
+        const marks = d.ref
+          ? [{ type: 'docRef', attrs: {
+              targetDocId: d.ref!.targetDocId, targetNodeId: d.ref!.targetNodeId, targetTitle: d.ref!.targetTitle,
+            } }]
+          : [];
+        const fixture = {
+          format: 'knowledge-block-notes' as const, version: 2 as const, id: d.id, title: d.title,
+          board: { createdAt: Date.now(), updatedAt: Date.now() },
+          nodes: [{
+            id: d.blockId, type: 'text' as const, x: 0, y: 0, width: 260, height: 80,
+            content: { format: 'tiptap-json', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: d.text, marks }] }] } },
+            parentId: null, pinned: false, locked: false, collapsed: false, tags: [], style: {},
+          }],
+          edges: [], tags: [],
+          layout: { mode: 'mindmap-right', rankSpacing: 90, nodeSpacing: 28 },
+          viewport: { x: 0, y: 0, zoom: 1 },
+          page: { size: 'A4', orientation: 'portrait', marginMm: 15, mode: 'fit', showPageBreak: true, colorMode: 'color', header: false, footer: false, showPageNumbers: false, edgeLabels: true, pageBreaks: [] },
+          assetRefs: [], links: [],
+        };
+        h.loadFixture(fixture as unknown as Parameters<typeof h.loadFixture>[0]);
+        h.invoke('requestSave');
+      }, d);
+      await page.waitForTimeout(600);
+    }
+    await seedDoc({ id: 'doc_B', title: '目标文档B', blockId: 'n_B1', text: '目标块B' });
+    await seedDoc({
+      id: 'doc_A', title: '来源文档A', blockId: 'n_A1', text: '看 [[目标块B]]',
+      ref: { targetDocId: 'doc_B', targetNodeId: 'n_B1', targetTitle: '目标块B' },
+    });
+    await page.evaluate(() => window.__drawpaper__!.invoke('openDoc', 'doc_B'));
+    await page.waitForTimeout(400);
+    await page.evaluate(() => window.__drawpaper__!.deleteBlocksGuarded(['n_B1']));
+    await expect(page.getByRole('heading', { name: '删除该块？' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'BlockDeleteConfirmDialog');
+    // 取消关闭。
+    await page.getByRole('button', { name: '取消' }).click();
+    await expect(page.getByRole('heading', { name: '删除该块？' })).toBeHidden({ timeout: 3000 });
+  });
+
+  test('弹层·关闭守卫三选框（CloseGuardDialog，Tauri-only 弹窗经 DEV seam 打开）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.evaluate(() => window.__drawpaper__!.closeGuardSet(true));
+    await expect(page.getByRole('heading', { name: '保存对当前文档的更改？' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'CloseGuardDialog');
+    await page.evaluate(() => window.__drawpaper__!.closeGuardSet(false));
+  });
+
+  test('弹层·AI 辅助设置（AiSettingsDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    await page.getByRole('button', { name: 'AI 辅助' }).click();
+    await page.locator('button[title="AI 设置"]').click();
+    await expect(page.getByRole('heading', { name: 'AI 辅助设置' })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'AiSettingsDialog');
+  });
+
+  test('弹层·待处理冲突副本（ConflictCopiesDialog）', async ({ page }) => {
+    await freshCanvas(page);
+    // 种子一条冲突副本，使列表非空。
+    await page.evaluate(() =>
+      window.__drawpaper__!.syncSeedConflictCopy('axe-conflict-doc', '冲突副本-axe', 'remote body'),
+    );
+    await page.waitForTimeout(300);
+    // 打开同步设置 → 点「查看待处理冲突副本」。
+    await page.locator('[data-testid="open-sync"]').click();
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(400); // 等对话框入场动画 settle
+    // 按钮在滚动列表内，直接 dispatch click 绕过指针拦截（Radix 嵌套弹窗）。
+    await page.locator('[data-testid="open-conflict-panel"]').dispatchEvent('click');
+    await expect(page.getByRole('heading', { name: /待处理冲突副本/ })).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(200);
+    await assertTarget(page, 'ConflictCopiesDialog');
+  });
 });

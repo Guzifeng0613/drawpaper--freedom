@@ -205,6 +205,9 @@ export interface DrawpaperDevHook {
   /** 宿主能力探测（e2e 能力矩阵断言）：Web Share / FSA。 */
   webCanShare(): boolean;
   webFsaSupported(): boolean;
+  // ---- Wave26 a11y：关闭守卫弹窗 e2e seam（Tauri-only 弹窗在 Chromium 无原生关闭事件）----
+  /** 直接开关 CloseGuardDialog（e2e axe 扫描用；DEV-only）。 */
+  closeGuardSet(open: boolean): void;
 }
 
 declare global {
@@ -618,6 +621,9 @@ export function installDevHooks(): void {
     },
     webFsaSupported() {
       return isFsaSupported();
+    },
+    closeGuardSet(open: boolean) {
+      getWiringUi().setCloseGuardOpen(open);
     },
   };
 }
