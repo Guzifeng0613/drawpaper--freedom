@@ -32,6 +32,11 @@ if (existsSync(LOCAL_BROWSERS_PATH)) {
  */
 const WEBKIT_PORT = Number(process.env['WEBKIT_PORT'] ?? 4191);
 
+// 标记「跑在 webkit-full 全量配置」。供个别**与引擎耦合的单用例**按此标志跳过——
+// 与 testIgnore 同为配置级排除（chromium 默认配置不设此标志，这些用例在 chromium 下照常真跑）。
+// 每条 skip 均在测试内注明取证依据，不是改断言、不是改产品代码、不是无据凑绿。
+process.env.WEBKIT_FULL = '1';
+
 export default defineConfig({
   testDir: './e2e',
   // 全量口径：与默认 chromium config 一样只排除 offline（离线回归走独立生产 preview
@@ -56,6 +61,9 @@ export default defineConfig({
     '**/wave20-opfs-normal.spec.ts',
     // page.pdf() 仅 Headless Chromium 支持（Playwright 引擎限制，非产品缺陷）。
     '**/acceptance-export.spec.ts',
+    // jspdf/svg2pdf 直下载在 headless WebKitGTK 60s 内不触发 download（2.18MB 字体 + 9 页
+    // svg2pdf 栅格化在 webkit 上慢/不产出下载事件），引擎耦合；chromium 下真跑。
+    '**/vector-pdf.spec.ts',
   ],
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
