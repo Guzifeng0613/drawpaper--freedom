@@ -44,7 +44,7 @@ export function CloseGuardDialog() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-red-700 text-white hover:bg-red-800"
               onClick={() => void closeGuardDiscardAndQuit()}
             >
               不保存

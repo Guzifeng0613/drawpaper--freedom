@@ -109,7 +109,7 @@ export function StorageQuotaDialog() {
             {ratio !== null && (
               <div className="mt-1 flex justify-between">
                 <span>占用</span>
-                <span className="font-medium text-warning">{Math.round(ratio * 100)}%</span>
+                <span className="font-medium text-amber-700">{Math.round(ratio * 100)}%</span>
               </div>
             )}
           </div>

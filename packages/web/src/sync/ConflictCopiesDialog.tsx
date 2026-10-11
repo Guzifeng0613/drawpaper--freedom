@@ -119,7 +119,7 @@ export function ConflictCopiesDialog({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-destructive"
+                      className="text-red-700"
                       disabled={busyId === row.id}
                       onClick={() => void act(row, 'discard')}
                       data-testid="conflict-discard"

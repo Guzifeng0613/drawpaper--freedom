@@ -93,7 +93,7 @@ export function ConflictDialog() {
               取消
             </button>
             <button
-              className="rounded bg-blue-500 px-3 py-1 text-xs text-white hover:bg-blue-600"
+              className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
               onClick={() => {
                 api.resolveConflicts({
                   choosePrimaryParent: choices,
