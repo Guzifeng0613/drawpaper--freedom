@@ -147,3 +147,56 @@ jobs:
             packages/web/test-results
           retention-days: 7
           if-no-files-found: warn
+
+  # ── WebKit 全量 e2e（Wave26 路 2：把 chromium 全量套件搬到 webkit 真跑）──
+  # 与 chromium / 窄 webkit 兼容 job 三者并行；同 runner 规格（ubuntu-latest 有 sudo）。
+  # 硬门：失败即红，禁 continue-on-error / fixme / skip 凑绿。
+  # 首轮全量采集预期红：按「引擎耦合(testIgnore 排除+注释) / 产品真缺陷(修 web 代码) /
+  # 计时 flake(重跑确认)」三分类收敛。capability 取证见 wave26-webkit-capability.spec。
+  webkit-full:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/ --reporter=append-only
+
+      # webServer 走 pnpm dev，但 @drawpaper/core 的 exports 指向 dist，需先构建。
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Install Playwright webkit (+ system deps)
+        working-directory: packages/web
+        run: pnpm exec playwright install --with-deps webkit
+
+      # Playwright webServer 自管 dev server（端口 4191，避开 WebKit 受限端口黑名单）。
+      - name: Playwright webkit FULL e2e (全量套件)
+        working-directory: packages/web
+        run: npx playwright test --config playwright.webkit.full.config.ts
+        env:
+          CI: '1'
+
+      - name: Upload Playwright report (webkit-full)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-webkit-full
+          path: |
+            packages/web/playwright-report
+            packages/web/test-results
+          retention-days: 7
+          if-no-files-found: warn

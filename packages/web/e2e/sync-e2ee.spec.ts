@@ -109,7 +109,7 @@ test.describe('Wave11 WebDAV 端到端加密（route mock）', () => {
     const external: string[] = [];
     page.on('request', (r) => {
       const u = r.url();
-      if (/^https?:\/\//.test(u) && !u.startsWith('http://localhost') && !u.includes('dav.mock')) external.push(u);
+      if (/^https?:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u) && !u.includes('dav.mock')) external.push(u);
     });
 
     await waitBoot(page);

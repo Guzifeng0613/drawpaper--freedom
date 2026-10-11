@@ -53,6 +53,10 @@ async function webKitShapeContext(browser: Browser, opts: { stubShare?: boolean 
 
 test.describe('Wave21 配额弹窗（chromium 默认套件）', () => {
   test('基线能力：chromium 有 FSA、无 Web Share；estimate 返回数值', async ({ page }) => {
+    // Wave26：本用例是 chromium 基线（断言 fsa=true）。headless WebKitGTK 无 FSA
+    // （取证 showDirectoryPicker=false），webkit 真实能力由 wave26-webkit-capability 的
+    // ::warning + wave21-webkit-compat 覆盖。引擎耦合，chromium 下真跑。
+    test.skip(!!process.env.WEBKIT_FULL, 'webkit 无 FSA，此为 chromium 基线断言');
     await waitForApp(page);
     const cap = await dialogState(page);
     console.log('WAVE21_CAP', cap);

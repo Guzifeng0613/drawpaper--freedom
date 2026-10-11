@@ -23,7 +23,9 @@ export default defineConfig({
   // 这里显式忽略 offline 目录，避免 dev 套件误跑离线用例。
   // Wave21：webkit 专用兼容 spec 只在 playwright.webkit.config.ts（project=webkit）下跑，
   // 绝不让默认 chromium 套件误跑（其断言按 WebKit 无 FSA 写）。
-  testIgnore: ['**/offline/**', '**/wave21-webkit-compat.spec.ts'],
+  // Wave26：wave26-webkit-capability.spec 是 webkit-full 的引擎能力取证（只打 ::warning），
+  // 不在 chromium job 上打印 webkit 向 warning，故一并忽略。
+  testIgnore: ['**/offline/**', '**/wave21-webkit-compat.spec.ts', '**/wave26-webkit-capability.spec.ts'],
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: 0,

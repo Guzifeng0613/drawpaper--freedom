@@ -36,6 +36,9 @@ const nodeText = (page: Page) =>
 
 test.describe('Wave11 阶段 B 手动备份包 + 冲突副本', () => {
   test('① 导出 kbpack → 清空库 → 导入合并还原（多文档 + 资产）', async ({ page }) => {
+    // Wave26：用例经 opfsSeedAsset 播种资产字节；headless WebKitGTK OPFS 后端写入抛
+    // UnknownError（取证），无法播种资产。引擎耦合，chromium 下真跑。
+    test.skip(!!process.env.WEBKIT_FULL, 'webkit OPFS 播种资产抛 UnknownError');
     await waitBoot(page);
 
     // 建两个文档：doc1 带一个资产引用。

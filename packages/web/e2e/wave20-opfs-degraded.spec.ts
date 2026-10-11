@@ -287,19 +287,7 @@ test.describe('Wave20 OPFS 降级 — 模式 B（getDirectory 抛 NotAllowedErro
   });
 });
 
-test.describe('Wave20 OPFS 降级 — (f) 正常上下文不回退', () => {
-  test('不注入覆写：opfsAvailable=true，拖入图片走 OPFS assetRef', async ({ page }) => {
-    await waitForApp(page);
-    expect(await page.evaluate(() => window.__drawpaper__!.opfsAvailable())).toBe(true);
-
-    await dropPngAndWait(page, 1);
-    const src = await page.evaluate(() => {
-      const nodes = window.__drawpaper__!.getState().doc.nodes;
-      const img = nodes.find((n) => n.type === 'image')!;
-      return img.image!.src;
-    });
-    // OPFS 正常：src 是 64-hex assetRef，不是 data:。
-    expect(src.startsWith('data:')).toBe(false);
-    expect(src).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
+// 【Wave26】原 (f)「不注入覆写：opfsAvailable=true 走 OPFS assetRef」用例已抽到
+// wave20-opfs-normal.spec.ts——它硬断言 OPFS 持久化后端可用，headless WebKitGTK 下
+// getDirectory 存在但写入 reject（产品正确降级 data:），属引擎耦合，webkit-full 下
+// testIgnore 该独立文件。本文件保留模式 A/B 两个「主动模拟 OPFS 不可用」的降级真跑。
