@@ -1,13 +1,13 @@
 # 发布操作手册（RELEASE）
 
 > 本手册面向维护者：在 develop 合并、CI 全绿之后，如何打 tag 触发发布、产物落在哪、以后发版要改哪些文件、以及出问题如何回滚。
-> 当前版本：**0.1.0-rc.19**（预发布 / Release Candidate）。
+> 当前版本：**0.1.0-rc.20**（预发布 / Release Candidate）。
 
 ## 1. 何时打 tag
 
 - 前置：要发布的 commit 已合入 `develop`，且该 commit 在 GitHub 上的 `web-ci` / `release-windows`(build) / `android-debug` 三条 workflow 均为绿色。
 - `chore/*`、`feat/*`、`fix/*` 分支本身不触发云端 workflow；只有合到 `develop` 并在 develop tip 跑绿后，才以 develop tip 的 commit 为基线打 tag。
-- 本次（RC）约定 tag 为 `v0.1.0-rc.19`。正式版将为 `v0.1.0` / `v1.0.0` 等（不含 `-`）。
+- 本次（RC）约定 tag 为 `v0.1.0-rc.20`。正式版将为 `v0.1.0` / `v1.0.0` 等（不含 `-`）。
 
 ## 2. 打 tag 与推送
 
@@ -18,10 +18,10 @@ git pull --ff-only
 git log --oneline -1          # 确认这是已跑绿的那个 commit
 
 # 2) 打带注释的 tag（annotated tag）
-git tag -a v0.1.0-rc.19 -m "drawpaper 0.1.0-rc.19 (pre-release)"
+git tag -a v0.1.0-rc.20 -m "drawpaper 0.1.0-rc.20 (pre-release)"
 
 # 3) 只推这一个 tag（不要用 git push --tags，避免误推其他临时 tag）
-git push origin v0.1.0-rc.19
+git push origin v0.1.0-rc.20
 ```
 
 推送 tag 后，`release-windows` 的 `publish` job 只在 `github.ref` 以 `refs/tags/` 开头时才会跑；分支 push / 手动触发只验证出包，不创建 Release。
@@ -40,18 +40,18 @@ git push origin v0.1.0-rc.19
 
 ### 4.1 GitHub Release 上的 Windows 安装包
 
-版本号取自 `tauri.conf.json`（本版 `0.1.0-rc.19`）。自 rc.11 起同一次 CI 产出 **NSIS（x64 / ARM64 各一）与 WiX MSI（en-US / zh-CN 两种 UI 语言 × x64 / ARM64 各二），共六个安装包**：
+版本号取自 `tauri.conf.json`（本版 `0.1.0-rc.20`）。自 rc.11 起同一次 CI 产出 **NSIS（x64 / ARM64 各一）与 WiX MSI（en-US / zh-CN 两种 UI 语言 × x64 / ARM64 各二），共六个安装包**：
 
-- `drawpaper_0.1.0-rc.19_x64-setup.exe` — NSIS，64 位 Intel/AMD（Win10/11），个人用户推荐
-- `drawpaper_0.1.0-rc.19_arm64-setup.exe` — NSIS，ARM64（Copilot+ PC、Surface Pro X 等）
-- `drawpaper_0.1.0-rc.19_x64_en-US.msi` — WiX MSI，x64，英文 UI（ProductLanguage 1033），企业批量部署（`msiexec /qn` 静默）
-- `drawpaper_0.1.0-rc.19_arm64_en-US.msi` — WiX MSI，ARM64，英文 UI
-- `drawpaper_0.1.0-rc.19_x64_zh-CN.msi` — WiX MSI，x64，简体中文 UI（ProductLanguage 2052）
-- `drawpaper_0.1.0-rc.19_arm64_zh-CN.msi` — WiX MSI，ARM64，简体中文 UI
+- `drawpaper_0.1.0-rc.20_x64-setup.exe` — NSIS，64 位 Intel/AMD（Win10/11），个人用户推荐
+- `drawpaper_0.1.0-rc.20_arm64-setup.exe` — NSIS，ARM64（Copilot+ PC、Surface Pro X 等）
+- `drawpaper_0.1.0-rc.20_x64_en-US.msi` — WiX MSI，x64，英文 UI（ProductLanguage 1033），企业批量部署（`msiexec /qn` 静默）
+- `drawpaper_0.1.0-rc.20_arm64_en-US.msi` — WiX MSI，ARM64，英文 UI
+- `drawpaper_0.1.0-rc.20_x64_zh-CN.msi` — WiX MSI，x64，简体中文 UI（ProductLanguage 2052）
+- `drawpaper_0.1.0-rc.20_arm64_zh-CN.msi` — WiX MSI，ARM64，简体中文 UI
 
 > ARM64 安装包自 rc.11 起在 GitHub hosted `windows-11-arm` runner 上做原生构建 + 静默安装/启动/卸载冒烟（`arm64-native` job）；发布资产仍以矩阵交叉构建产物为唯一来源。zh-CN MSI 在 CI（无 UAC）下走 per-user 落点，企业管理员 elevated 按机器安装请先小批量验证。
 
-> MSI 的 ProductVersion 不接受 semver 预发布后缀，tauri.conf 用 MSI-only 覆盖 `bundle.windows.wix.version=0.1.0.17`；应用「关于」与 NSIS 显示的对外版本仍是 `0.1.0-rc.19`。MSI 提供 en-US / zh-CN 两种安装界面语言（自 rc.11 起）。
+> MSI 的 ProductVersion 不接受 semver 预发布后缀，tauri.conf 用 MSI-only 覆盖 `bundle.windows.wix.version=0.1.0.17`；应用「关于」与 NSIS 显示的对外版本仍是 `0.1.0-rc.20`。MSI 提供 en-US / zh-CN 两种安装界面语言（自 rc.11 起）。
 
 六个文件由 `publish` job 从 `artifacts/nsis-x64/**`、`artifacts/nsis-arm64/**`、`artifacts/msi-x64/**`、`artifacts/msi-arm64/**` 通配收集（MSI 含 en-US 与 zh-CN 两种 culture 后缀）并挂到 Release，`SHA256SUMS.txt` 覆盖全部六个（workflow 硬断言 6 行）。构建在 Windows runner 上完成；Linux/macOS 无法本地复现该产物。
 
@@ -108,11 +108,11 @@ Wave15 A 起，Windows 桌面壳**已接入官方 `tauri-plugin-updater` v2**：
 - **移动 / 删除 tag**（必须重发时）：
   ```bash
   # 删远端 tag 后本地重建到正确 commit
-  git push origin :refs/tags/v0.1.0-rc.19
-  git tag -d v0.1.0-rc.19
+  git push origin :refs/tags/v0.1.0-rc.20
+  git tag -d v0.1.0-rc.20
   git checkout <correct-commit-sha>
-  git tag -a v0.1.0-rc.19 -m "drawpaper 0.1.0-rc.19 (pre-release)"
-  git push origin v0.1.0-rc.19
+  git tag -a v0.1.0-rc.20 -m "drawpaper 0.1.0-rc.20 (pre-release)"
+  git push origin v0.1.0-rc.20
   ```
 - **版本号回退**：若某个版本号打错了（例如把 `-rc.1` 打成 `-rc.2`），按 §5 改回版本文件并合并到 develop，再用修正后的 tag 重发；已发错 tag 的 Release 按上面删除。
 - 代码本身不回滚：develop 已合入的功能不因为某个 tag 发错而撤回，下一个 tag 带上修复即可。

@@ -1,6 +1,6 @@
 {
   "name": "drawpaper",
-  "version": "0.1.0-rc.19",
+  "version": "0.1.0-rc.20",
   "private": true,
   "description": "drawpaper — local-first infinite-canvas knowledge-block note tool (web PWA). Monorepo root.",
   "type": "module",
