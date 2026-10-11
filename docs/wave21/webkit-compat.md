@@ -197,6 +197,22 @@ opfsAvailable()=true  fsaSupported()=false  canShare()=false
   无一处是「产品在 WebKit 应降级却没降级或静默失败」。chromium 零回归（每轮 chromium job
   success、offline 150 passed、窄 webkit-compat 5 passed）。
 
+**返工（并入 develop=ed186e4 后新增两红，已收敛）：**
+
+develop 并入三路后 webkit-full 复测为 138 passed / 11 skipped / **2 failed**，两红均为
+后续 wave26 测试在 webkit 下暴露的引擎差异：
+
+- `wave21-flow-layered.spec.ts` 工具栏一键整理：`loadFlowDoc` 助手在 webkit headless 上
+  bootstrap 异步 `openDoc` 比 chromium 更慢地后到，原有 chromium 的 3 轮 / 10s 落位 /
+  2s 观察窗不足以钉住 fixture。**引擎加固**（仅 `WEBKIT_FULL` 下：重灌 3→6 轮、落位
+  poll 10s→20s、观察窗 2s→4s；层级坐标/多根/可撤销断言意图一条未改，chromium 路径原样）。
+- `a11y-axe.spec.ts` ConflictCopiesDialog：与既有两条 axe skip **同款**——webkit headless
+  无弹窗 dimmed backdrop，面板内 11px `text-muted-foreground`「来自 … · 日期」小字按白色底
+  被 axe 算出不足 4.5（chromium 有 backdrop 合成 → 通过）。弹层在 webkit 正常挂载（heading
+  可见），非产品 contrast/挂载缺陷，同口径 `test.skip(WEBKIT_FULL)`。
+
+返工后 webkit-full **0 failed**（三 job chromium / 窄 webkit / webkit-full 全 Success）。
+
 **仍保留手动项（与上节一致，CI 无法覆盖）：**
 
 - 真机 macOS / iPadOS Safari 走查 1–5（Web Share 真面板、真机 OPFS 参差）；
