@@ -38,16 +38,25 @@ export default defineConfig({
   // config，dev server 无 SW，不在此跑）。wave21-webkit-compat.spec.ts 是 webkit 兼容
   // 断言（fsa/share=false），在 webkit 下本就应绿，故**不**排除，纳入全量。
   //
-  // 【引擎耦合排除区】(Wave26 首轮全量采集后按取证追加；每条须注明取证依据，
-  //   不是改断言、不是改产品代码、不是 skip 凑绿——这些用例硬断言 WebKit 不具备的
-  //   能力，属「测试与引擎耦合」而非「产品缺陷」)：
-  //   - '**/opfs-idb-survive.spec.ts'      : 硬断言 opfsAvailable()===true（OPFS 不可用）
-  //   - '**/p21-image-opfs.spec.ts'        : 硬断言 opfsAvailable()===true + assetRef 落 OPFS
-  //   - '**/wave20-opfs-normal.spec.ts'   : 硬断言「不注入覆写时走 OPFS assetRef」(64-hex)
-  // （wave20-opfs-degraded.spec.ts 的模式 A/B 降级用例**保留**——它们 addInitScript 主动
-  //   模拟 OPFS 不可用，在 webkit 下恰好验证产品降级路径，应真跑；只排除其「正常上下文
-  //   不回退」一例，已抽到 wave20-opfs-normal.spec.ts 单独成文件以便 testIgnore）。
-  testIgnore: ['**/offline/**'],
+  // 【引擎耦合排除区】(Wave26 首轮全量采集取证后追加；每条注明取证依据。
+  //   原则：这些用例硬断言 headless WebKitGTK 不具备的能力，属「测试与引擎耦合」，
+  //   不是改断言/不是改产品代码/不是 skip 凑绿——产品降级路径均已正确工作。
+  //   取证 ::warning：getDirectory=true（函数存在）但 opfsAvailable()=true，而真实
+  //   OPFS 后端写入 reject，image-pipeline 正确降级 data: 内联；showDirectoryPicker=false、
+  //   navigator.share=false。)
+  testIgnore: [
+    '**/offline/**',
+    // OPFS 持久化后端在 headless WebKitGTK 不可用（写入 reject→产品降级 data:）：
+    // 下列用例硬断言「图片/附件落 OPFS assetRef、跨刷新幸存、资产 GC」，引擎耦合。
+    '**/opfs-idb-survive.spec.ts',
+    '**/p21-image-opfs.spec.ts',
+    '**/wave16-asset-dedup-gc.spec.ts',
+    '**/sync-asset-push.spec.ts',
+    // (f) 正常上下文走 OPFS assetRef（从 wave20-opfs-degraded 抽出；降级模式 A/B 保留真跑）。
+    '**/wave20-opfs-normal.spec.ts',
+    // page.pdf() 仅 Headless Chromium 支持（Playwright 引擎限制，非产品缺陷）。
+    '**/acceptance-export.spec.ts',
+  ],
   fullyParallel: true,
   forbidOnly: !!process.env['CI'],
   retries: 0,

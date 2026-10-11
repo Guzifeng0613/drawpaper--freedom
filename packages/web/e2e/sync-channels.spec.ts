@@ -90,7 +90,7 @@ test.describe('Wave10 跨设备同步（WebDAV route mock）', () => {
     const audit = (p: Page) =>
       p.on('request', (r) => {
         const u = r.url();
-        if (/^https?:\/\//.test(u) && !u.startsWith('http://localhost') && !u.includes('dav.mock')) external.push(u);
+        if (/^https?:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u) && !u.includes('dav.mock')) external.push(u);
       });
 
     const pageA = await ctxA.newPage();
@@ -146,7 +146,7 @@ test.describe('Wave10 跨设备同步（WebDAV route mock）', () => {
     const external: string[] = [];
     page.on('request', (r) => {
       const u = r.url();
-      if (/^https?:\/\//.test(u) && !u.startsWith('http://localhost')) external.push(u);
+      if (/^https?:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u)) external.push(u);
     });
     await waitBoot(page);
     // 建块、改名、改分页等本地编辑，不应产生任何外网请求。

@@ -55,14 +55,16 @@ const waitPeerSeen = async (page: Page, minCount: number) => {
 
 test.describe('同浏览器多标签实时协作', () => {
   test('① 建块/连线/输入实时同步，且 B 可反向编辑 A 可见', async ({ context }) => {
-    // 零外网审计：两个 page 的全部 http(s) 请求都必须是同源 localhost。
+    // 零外网审计：两个 page 的全部 http(s) 请求都必须是同源本机回环。
+    // 回环放行同时覆盖 localhost（chromium config:4173）与 127.0.0.1（webkit-full:4191，
+    // WebKit 受限端口规避后用 IP 直连）——两者都是 dev server 本机回环，不是外网。
     const external: string[] = [];
     const pageA = await context.newPage();
     const pageB = await context.newPage();
     const audit = (p: Page) => {
       p.on('request', (r) => {
         const u = r.url();
-        if (/^https?:\/\//.test(u) && !u.startsWith('http://localhost')) external.push(u);
+        if (/^https?:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(u)) external.push(u);
       });
       p.on('requestfailed', () => {
         /* 协作不应有失败请求；dev server 资源除外 */
