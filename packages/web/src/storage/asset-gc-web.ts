@@ -69,6 +69,31 @@ export async function orphansAfterPurge(purgedDoc: KBNoteDoc): Promise<Set<strin
   });
 }
 
+/**
+ * 批量清空回收站时，统一算出全部待删文档的孤儿 ref 并集。
+ *
+ * 与逐行 orphansAfterPurge 的区别：此处「剩余回收站」为空集（全部 trash 行都将被删），
+ * 因此多份 trash 文档共享的资产也会被正确判为孤儿——不会被兄弟 trash 行保活。
+ *
+ * 调用前提：db.trash 已清空（或即将清空），remainingTrashDocs 恒为空。
+ * 返回的 Set 已去重，moveOrphansToTrash 逐 ref 移入恰好一次。
+ */
+export async function orphansAfterEmptyTrash(purgedDocs: KBNoteDoc[]): Promise<Set<string>> {
+  const activeDocs = await db.docs.toArray();
+  const cRefs = await conflictRefs();
+  const allOrphans = new Set<string>();
+  for (const doc of purgedDocs) {
+    const orphans = orphanRefsAfterPurge({
+      purgedDoc: doc,
+      remainingDocs: activeDocs,
+      remainingTrashDocs: [],
+      conflictCopyRefs: cRefs,
+    });
+    for (const ref of orphans) allOrphans.add(ref);
+  }
+  return allOrphans;
+}
+
 /** 把指定 ref 移入保留区（带来源 doc 记录）。 */
 export async function moveOrphansToTrash(refs: Set<string>, sourceDocId: string): Promise<number> {
   let moved = 0;
