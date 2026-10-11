@@ -590,13 +590,27 @@ export function SyncSettingsDialog({
   );
 }
 
-function pushToastFromSummary(summary: { totalDocs: number; importedNew: number; merged: number; conflicts: number; assetsRestored: number }): void {
+function pushToastFromSummary(summary: {
+  totalDocs: number;
+  importedNew: number;
+  merged: number;
+  conflicts: number;
+  assetsRestored: number;
+  skippedAssets: number;
+}): void {
   // 延迟引入避免循环；运行时 toast。
   import('@/panels/lib/toast').then(({ pushToast }) => {
+    const base = `导入完成：新增 ${summary.importedNew}、合并 ${summary.merged} 个文档`;
+    const assetNote =
+      summary.skippedAssets > 0
+        ? `，回填 ${summary.assetsRestored} 个附件；${summary.skippedAssets} 项资产因当前设备不支持 OPFS 未回填（以降级形态保留）`
+        : `，回填 ${summary.assetsRestored} 个附件`;
     if (summary.conflicts > 0) {
-      pushToast('warn', `导入完成：新增 ${summary.importedNew}、合并 ${summary.merged} 个文档，${summary.conflicts} 处冲突待处理`);
+      pushToast('warn', `${base}，${summary.conflicts} 处冲突待处理${assetNote}`);
+    } else if (summary.skippedAssets > 0) {
+      pushToast('warn', `${base}${assetNote}`);
     } else {
-      pushToast('success', `导入完成：新增 ${summary.importedNew}、合并 ${summary.merged} 个文档，回填 ${summary.assetsRestored} 个附件`);
+      pushToast('success', `${base}${assetNote}`);
     }
   }).catch(() => undefined);
 }

@@ -37,6 +37,8 @@ export interface KbpackImportSummary {
   conflicts: number;
   /** 回填的资产数。 */
   assetsRestored: number;
+  /** 因当前设备不支持 OPFS 或写盘失败而未回填的资产数（文档仍已落库）。 */
+  skippedAssets: number;
   /** 跳过的坏档数。 */
   skipped: number;
   /** 合并后写回的文档 id（供 UI 提示/打开）。 */
@@ -129,6 +131,7 @@ export async function importKbpackBundle(bytes: Uint8Array): Promise<KbpackImpor
     merged: 0,
     conflicts: 0,
     assetsRestored: 0,
+    skippedAssets: 0,
     skipped: 0,
     docIds: [],
   };
@@ -174,11 +177,19 @@ export async function importKbpackBundle(bytes: Uint8Array): Promise<KbpackImpor
   }
 
   // 资产回填（本端缺失者）。
+  // no-OPFS 设备（Safari/WebKit/旧浏览器，Wave21 降级目标平台）上 writeAssetToRef 内部
+  // getAssetsDir 会抛 OpfsUnavailableError。文档此刻已全部落库，绝不能让首个资产写失败
+  // 把整个 importKbpackBundle reject、进而让 caller 弹「导入备份包失败」的假错误。
+  // 逐资产 try/catch：失败计入 skippedAssets 并 continue，文档以降级形态（缺图/dataURL）保留。
   for (const ref of plan.missingAssets) {
     const assetBytes = byName.get(`assets/${ref}`);
     if (!assetBytes) continue;
-    await writeAssetToRef(ref, assetBytes);
-    summary.assetsRestored += 1;
+    try {
+      await writeAssetToRef(ref, assetBytes);
+      summary.assetsRestored += 1;
+    } catch {
+      summary.skippedAssets += 1;
+    }
   }
 
   useSyncUi.getState().bumpCounts(0, summary.merged + summary.importedNew);
