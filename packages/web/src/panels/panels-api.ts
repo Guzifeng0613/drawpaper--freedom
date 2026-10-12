@@ -25,10 +25,12 @@ export interface DocMeta {
   id: string;
   title: string;
   updatedAt: number;
+  /** 坏档：列表隔离展示，仅可删除。 */
+  corrupt?: boolean;
 }
 
 /** 自动保存状态文案机。 */
-export type SaveState = 'idle' | 'saving' | 'saved';
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 /** 单条全文搜索命中。 */
 export interface SearchResultItem {
@@ -81,6 +83,8 @@ export interface TrashItem {
 export interface ActiveFileHandle {
   /** 文件名，如「读书笔记.kbnote」。 */
   name: string | null;
+  /** 句柄 readwrite 权限丢失：写盘暂停，需用户手势内重新授权。 */
+  needsAuth?: boolean;
 }
 
 export interface PanelsApi {
@@ -127,6 +131,10 @@ export interface PanelsApi {
   importKbnote(file: File): void;
   exportKbnote(id: string): void;
   requestSave(): void;
+  /** 保存失败后手动重试落盘。 */
+  retrySave(): void;
+  /** 用户手势内重新请求活动本地文件 readwrite 权限。 */
+  relinkActiveFile(): Promise<void>;
 
   // ---- 编辑回调 ----
   undo(): void;

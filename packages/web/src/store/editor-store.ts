@@ -69,6 +69,14 @@ export const editorStore = createEditorStore(blankInitialDoc(), {
   resolveConflictUi: (pending) => conflictBridge.handler(pending),
   templates: TEMPLATE_REGISTRY,
   fsa: activeFileManager,
+  // IndexedDB 主自动保存失败也走同一套配额/失败提示（原先只有 FSA 路径会触发）。
+  onSaveError: (kind) => {
+    if (kind === 'quota') {
+      void raiseQuotaDialog();
+    } else {
+      pushToast('warn', '自动保存失败，请检查浏览器存储后重试');
+    }
+  },
 });
 
 // Wave7 robustness / Wave21 WebKit 兼容：FSA 写盘配额/失败不再静默。
@@ -108,14 +116,19 @@ async function bootstrap(): Promise<void> {
     }
   }
   mark('doc-open');
-  // 尝试恢复上次活动本地文件句柄（需用户重新授权；失败则保持 IndexedDB 自动保存）。
+  // 恢复上次活动本地文件句柄。权限仍在则直接接管；重启后权限丢失则挂起待重授权，
+  // 不静默写、不丢待写内容（Dexie 主保存继续），标题栏提示用户点按钮重新授权。
   try {
     const name = await activeFileManager.restoreActiveFile();
     if (name) {
       editorStore.setState({ activeFile: { name } });
+    } else if (activeFileManager.hasPendingReauth()) {
+      const pendingName = activeFileManager.pendingReauthName() ?? '本地文件';
+      editorStore.setState({ activeFile: { name: pendingName, needsAuth: true } });
+      pushToast('warn', `「${pendingName}」需要重新授权后才能写回本地文件，当前仅保存在浏览器`);
     }
   } catch {
-    /* 无活动句柄或未授权 */
+    /* 无活动句柄 */
   }
   startSearchSync();
   // Wave21：启动时预检一次浏览器配额（临界才弹引导，10 分钟节流；Tauri 内部 no-op）。

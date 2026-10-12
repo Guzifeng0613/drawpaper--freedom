@@ -163,3 +163,33 @@ export function parseKBNote(json: string): ParseKBNoteResult {
   }
   return { doc: parsed.doc, migrationNotes };
 }
+
+/** 已存储记录（IndexedDB 行）的宽容解析结果。 */
+export type StoredDocResult = { success: true; doc: KBNoteDoc } | { success: false };
+
+/**
+ * 解析一条「已存进 IndexedDB 的文档对象」（不是 .kbnote 文本，无 format 包装）。
+ *
+ * 与 parseKBNote 同口径但作用于对象：先按 version 逐级迁移到 CURRENT_DOC_VERSION，
+ * 再做 zod 校验。这样 v2/v3 旧版 IDB 记录（未被迁移重存）不会被误判为坏档；
+ * 真正 JSON 结构损坏 / 字段类型错 / 迁移后仍不过 schema 的记录才判失败。
+ *
+ * 与 parseKBNote 的差异：不要求 format 字段（IDB 直接存 KBNoteDoc），版本高于 current
+ * 也不抛，按无法校验返回 success:false（交由上层隔离）。
+ */
+export function parseStoredDoc(raw: unknown): StoredDocResult {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { success: false };
+  }
+  let toValidate: unknown = raw;
+  const version = (raw as Record<string, unknown>)['version'];
+  try {
+    if (typeof version === 'number' && Number.isFinite(version) && version < CURRENT_DOC_VERSION && version >= 1) {
+      toValidate = migrate(raw, version).value;
+    }
+    const parsed = safeParseKBNoteDoc(toValidate);
+    return parsed.success ? { success: true, doc: parsed.doc } : { success: false };
+  } catch {
+    return { success: false };
+  }
+}

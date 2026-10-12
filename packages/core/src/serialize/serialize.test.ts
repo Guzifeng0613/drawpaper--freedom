@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   serializeKBNote,
   parseKBNote,
+  parseStoredDoc,
   migrate,
   MIGRATION_REGISTRY,
   MIGRATION_NOTES,
@@ -114,6 +115,32 @@ describe('v1 -> v2 -> v3 -> v4 migration', () => {
     // 直接喂 v1 对象给 v2 schema：version literal 2 不匹配 → 失败。
     const r = safeParseKBNoteDoc(v1Doc());
     expect(r.success).toBe(false);
+  });
+});
+
+describe('parseStoredDoc（IndexedDB 行宽容解析）', () => {
+  it('v2/v3 旧版 IDB 对象先迁移到 v4 再校验，不再被 strict parse 误判坏档', () => {
+    // v1/v2/v3 旧版 IDB 行 = 完整 KBNoteDoc 对象（含 format），只是 version 落后。
+    const r = parseStoredDoc(v1Doc());
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.doc.version).toBe(4);
+      expect(r.doc.id).toBe('doc_v1');
+      expect(r.doc.links).toEqual([]);
+    }
+  });
+
+  it('当前 v4 对象直接通过（无需迁移）', () => {
+    const fresh = createDoc('新档');
+    const r = parseStoredDoc(JSON.parse(JSON.stringify(fresh)));
+    expect(r.success).toBe(true);
+  });
+
+  it('真正结构损坏 / 字段类型错 → success:false（隔离为坏档）', () => {
+    expect(parseStoredDoc(null).success).toBe(false);
+    expect(parseStoredDoc(42).success).toBe(false);
+    expect(parseStoredDoc({ id: 'x', board: { updatedAt: 'not-a-number' } }).success).toBe(false);
+    expect(parseStoredDoc({ id: 'x', nodes: 'oops' }).success).toBe(false);
   });
 });
 

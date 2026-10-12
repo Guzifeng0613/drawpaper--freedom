@@ -259,6 +259,13 @@ export function createMockPanelsApi(): PanelsApi {
       state.saveState = 'saved';
       state.savedAt = Date.now();
     },
+    retrySave() {
+      state.saveState = 'saved';
+      state.savedAt = Date.now();
+    },
+    async relinkActiveFile() {
+      /* mock：无句柄可重授权 */
+    },
     undo() {
       state.canUndo = false;
     },

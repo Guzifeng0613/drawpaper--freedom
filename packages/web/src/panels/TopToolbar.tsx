@@ -111,6 +111,32 @@ function TitleRename({ api }: { api: PanelsApi }) {
 }
 
 function SaveStatus({ api }: { api: PanelsApi }) {
+  // 活动文件权限丢失：写盘已暂停（Dexie 主保存继续），提示用户手势内重新授权。
+  if (api.activeFile?.name && api.activeFile.needsAuth) {
+    return (
+      <button
+        type="button"
+        onClick={() => void api.relinkActiveFile()}
+        title="浏览器重启后文件写入权限已失效，点击重新授权写回本地文件"
+        className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-600 hover:bg-amber-500/20"
+      >
+        {api.activeFile.name} · 需重新授权
+      </button>
+    );
+  }
+  // 本地自动保存失败：显式错误态 + 重试。
+  if (api.saveState === 'error') {
+    return (
+      <button
+        type="button"
+        onClick={() => api.retrySave()}
+        title="自动保存失败（可能是浏览器存储已满），点击重试"
+        className="rounded border border-destructive/50 bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/20"
+      >
+        保存失败 · 重试
+      </button>
+    );
+  }
   // 已绑定本地文件时显示「已保存到 xxx.kbnote」；否则显示自动保存时间。
   if (api.activeFile?.name) {
     return (

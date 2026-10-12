@@ -24,6 +24,8 @@ export interface DocMeta {
   title: string;
   updatedAt: number;
   createdAt: number;
+  /** 记录无法通过结构校验（坏档）：列表隔离展示，仅可删除/导出原始数据。 */
+  corrupt?: boolean;
 }
 
 /**
@@ -177,6 +179,16 @@ export interface FsaCapability {
   writeActiveFile(text: string): Promise<boolean>;
   /** 弹另存为框落盘；返回最终文件名（含 .kbnote），取消为 null。 */
   saveFileAs(suggestedName: string, text: string): Promise<string | null>;
+  /**
+   * 上次恢复活动句柄时权限不足（浏览器重启后 permission 丢失）：
+   * true 表示有待重新授权的句柄，写盘已暂停（Dexie 主保存继续，待写内容不丢）。
+   */
+  hasPendingReauth(): boolean;
+  /**
+   * 必须在用户手势（按钮点击）内调用：请求 readwrite 权限。
+   * 成功返回文件名并恢复写盘；用户拒绝/取消返回 null。
+   */
+  relinkActiveFile(): Promise<string | null>;
 }
 
 // ============ 模板工厂（web 注入；core 只按 id 取用）============

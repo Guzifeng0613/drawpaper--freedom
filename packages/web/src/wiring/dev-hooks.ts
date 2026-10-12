@@ -61,7 +61,7 @@ export interface DrawpaperDevHook {
     layoutUi: { scopeSelected: boolean; tighten: boolean };
     backupEnabled: boolean;
     searchResults: unknown[];
-    saveState: 'idle' | 'saving' | 'saved';
+    saveState: 'idle' | 'saving' | 'saved' | 'error';
     savedAt: number | null;
   };
   /** 按名调用白名单内的 store action。 */
