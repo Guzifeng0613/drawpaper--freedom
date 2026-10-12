@@ -201,6 +201,11 @@ export interface EditorState {
   searchIndex: SearchIndexHandle;
   searchQuery: string;
   searchResults: SearchResultItem[];
+  /**
+   * 当前文档索引是否已喂完（rIC 分片喂入期间为 false）。
+   * false 时搜索面板展示「正在建立索引…」而非把部分/空结果误报为「无匹配结果」。
+   */
+  searchReady: boolean;
   /** 搜索结果高亮的节点 id。 */
   searchHighlight: Set<string>;
 
@@ -366,6 +371,8 @@ export interface EditorActions {
   clearSearchHighlight(): void;
   /** web 写入不透明索引句柄。 */
   setSearchIndex(handle: SearchIndexHandle): void;
+  /** web 标记索引喂入完成/进行中（分片重建生命周期）。 */
+  setSearchReady(ready: boolean): void;
 
   // ---- 选择 / 模式 ----
   setSelection(ids: string[]): void;
@@ -837,6 +844,7 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
         searchIndex: null,
         searchQuery: '',
         searchResults: [],
+        searchReady: false,
         searchHighlight: new Set(),
         clipboard: null,
         prefs: { showGrid: true, snapToGrid: false },
@@ -854,10 +862,13 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
         // ================= 文档级 =================
         newDoc: () => switchDoc(blankDoc(now())),
         renameDoc: (title) => {
+          // 调用时捕获旧标题：undo 逆操作必须回到改名前的标题，
+          // 不能在 undo 运行时读 get().doc.title（那时已是新名，undo 退化为恒等）。
+          const oldTitle = get().doc.title;
           runCommand({
             name: 'rename-doc',
             execute: (d) => ({ ...d, title }),
-            undo: (d) => ({ ...d, title: get().doc.title }),
+            undo: (d) => ({ ...d, title: oldTitle }),
           });
         },
         loadDoc: (doc) => switchDoc(doc),
@@ -996,11 +1007,12 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
           const removedNodes = before.nodes.filter((n) => idSet.has(n.id));
           const removedEdges = before.edges.filter((e) => idSet.has(e.source) || idSet.has(e.target));
           // 第一步：摘同文档内指向被删块的 docRef mark（core 纯函数，结构共享无改动时自收敛）。
-          const stripped = stripDocRefMarks(before, stripLinkIds);
+          // execute 必须是输入驱动的 doc→doc 变换：初次执行 d===before 结果与 capture 时一致；
+          // redo（undo 后中间发生漂移编辑）时对当前状态重算，避免硬编码过期快照覆盖漂移编辑。
           runMacro('delete-nodes-with-link-cleanup', [
             {
               name: 'strip-incoming-docref-marks',
-              execute: () => stripped.doc,
+              execute: (d) => stripDocRefMarks(d, stripLinkIds).doc,
               // 逆操作：还原到 macro 前的整份文档（mark 复原）。
               undo: () => before,
             },
@@ -1627,6 +1639,11 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
         setSearchIndex: (handle) => {
           set((d) => {
             d.searchIndex = handle;
+          });
+        },
+        setSearchReady: (ready) => {
+          set((d) => {
+            d.searchReady = ready;
           });
         },
 

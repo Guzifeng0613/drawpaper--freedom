@@ -67,6 +67,7 @@ export default function App() {
   const currentDocId = useEditorStore((s) => s.currentDocId);
   useEditorStore((s) => s.searchQuery);
   useEditorStore((s) => s.searchResults);
+  useEditorStore((s) => s.searchReady);
   useEditorStore((s) => s.layoutUi.scopeSelected);
   useEditorStore((s) => s.focusNodeId);
   useEditorStore((s) => s.tagFilter);

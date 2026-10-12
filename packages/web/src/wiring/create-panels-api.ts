@@ -115,6 +115,9 @@ export function createPanelsApi(store: EditorStoreApi): PanelsApi {
     get activeSearchIndex() {
       return useWiringUi.getState().activeSearchIndex;
     },
+    get searchReady() {
+      return store.getState().searchReady;
+    },
 
     // ---- 文档回调 ----
     newDoc: () => store.getState().newDoc(),

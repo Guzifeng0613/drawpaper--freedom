@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KBNoteDoc } from '@drawpaper/core';
-import { extractPlainText, buildIndex, searchDocs } from './search-index';
+import { createEmptyIndex, extractPlainText, buildIndex, feedIndexChunked, searchDocs } from './search-index';
 
 function docWith(blocks: Array<{ id: string; data: unknown }>): KBNoteDoc {
   return {
@@ -102,5 +102,37 @@ describe('MiniSearch build / search', () => {
   it('returns empty for blank query', () => {
     const index = buildIndex(docWith([{ id: 'n1', data: { type: 'doc' } }]));
     expect(searchDocs(index, '   ')).toEqual([]);
+  });
+});
+
+describe('feedIndexChunked 分片喂入', () => {
+  it('分片喂完后索引与全量一致；喂入中途存在不完整窗口', async () => {
+    const doc = docWith([
+      { id: 'n1', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '思维导图布局算法' }] }] } },
+      { id: 'n2', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '早餐吃什么' }] }] } },
+      { id: 'n3', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '周末去哪玩' }] }] } },
+    ]);
+    const index = createEmptyIndex();
+    let ready = false;
+    feedIndexChunked(index, doc, () => { ready = true; }, { chunkSize: 2 });
+    // 第一片同步喂入后 n3 尚未入索引——不完整窗口客观存在，UI 必须用 searchReady 占位而非报「无匹配」。
+    expect(searchDocs(index, '周末去哪玩')).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ready).toBe(true);
+    expect(searchDocs(index, '周末去哪玩')).toHaveLength(1);
+    expect(searchDocs(index, '早餐吃什么')).toHaveLength(1);
+  });
+
+  it('cancel 后不再喂片、不触发 onReady', async () => {
+    const doc = docWith([
+      { id: 'n1', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '关键词一' }] }] } },
+      { id: 'n2', data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '关键词二' }] }] } },
+    ]);
+    const index = createEmptyIndex();
+    let ready = false;
+    const handle = feedIndexChunked(index, doc, () => { ready = true; }, { chunkSize: 1 });
+    handle.cancel();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ready).toBe(false);
   });
 });
