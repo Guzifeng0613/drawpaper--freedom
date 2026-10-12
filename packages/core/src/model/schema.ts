@@ -41,22 +41,26 @@ const BlockStyleSchema = z
 
 export const BlockNodeSchema = z.object({
   id: z.string().min(1),
-  type: z.enum([
-    'text',
-    'heading',
-    'todo',
-    'bullet',
-    'image',
-    'note',
-    'group',
-    // P1 预留
-    'table',
-    'code',
-    'equation',
-    'bookmark',
-    'attachment',
-    'reminder',
-  ]),
+  // 附加式兼容（不升 schema 版本）：未知 type（未来版本/外部档）回退最通用的文本块，
+  // 节点其余字段（content/data 等）原样保留，不因枚举拒档。与 layout.mode 的 .catch 策略一致。
+  type: z
+    .enum([
+      'text',
+      'heading',
+      'todo',
+      'bullet',
+      'image',
+      'note',
+      'group',
+      // P1 预留
+      'table',
+      'code',
+      'equation',
+      'bookmark',
+      'attachment',
+      'reminder',
+    ])
+    .catch('text'),
   x: finiteNumber,
   y: finiteNumber,
   width: finiteNumber.refine((v) => v > 0, 'width must be a positive number'),
@@ -139,11 +143,12 @@ export const ViewportSchema = z.object({
 
 export const PageSettingsSchema = z.object({
   size: z.literal('A4').default('A4'),
-  orientation: z.enum(['portrait', 'landscape']).default('portrait'),
-  marginMm: z.union([z.literal(10), z.literal(15), z.literal(20)]).default(15),
-  mode: z.enum(['fit', 'tiles', 'flow']).default('fit'),
+  // 附加式兼容（不升版本）：未知枚举值回退各自默认分页设置，整文档不拒开，与 layout.mode 一致。
+  orientation: z.enum(['portrait', 'landscape']).catch('portrait').default('portrait'),
+  marginMm: z.union([z.literal(10), z.literal(15), z.literal(20)]).catch(15).default(15),
+  mode: z.enum(['fit', 'tiles', 'flow']).catch('fit').default('fit'),
   showPageBreak: z.boolean().default(true),
-  colorMode: z.enum(['color', 'gray']).default('color'),
+  colorMode: z.enum(['color', 'gray']).catch('color').default('color'),
   header: z.boolean().default(false),
   footer: z.boolean().default(false),
   showPageNumbers: z.boolean().default(false),

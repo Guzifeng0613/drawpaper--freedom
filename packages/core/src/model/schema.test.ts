@@ -338,3 +338,52 @@ describe('v2: links', () => {
     ).toThrow(KBNoteParseError);
   });
 });
+
+describe('forward-compat: unknown enum values degrade instead of rejecting the doc', () => {
+  it('unknown node.type falls back to text and preserves content/data and other fields', () => {
+    const customData = { type: 'doc', content: [{ type: 'paragraph', text: '未来块' }] };
+    const d = parseKBNoteDoc(
+      doc({
+        nodes: [rawNode({ type: 'future-widget', content: { format: 'tiptap-json', data: customData }, x: 42, y: 7 })],
+      }),
+    );
+    expect(d.nodes).toHaveLength(1);
+    expect(d.nodes[0]!.type).toBe('text');
+    // 其余字段原样保留：位置 + 不透明正文 data
+    expect(d.nodes[0]!.x).toBe(42);
+    expect(d.nodes[0]!.y).toBe(7);
+    expect(d.nodes[0]!.content).toEqual({ format: 'tiptap-json', data: customData });
+  });
+
+  it('unknown page enum values fall back to their existing defaults', () => {
+    const d = parseKBNoteDoc(
+      doc({
+        page: {
+          size: 'A4',
+          orientation: 'reverse',
+          marginMm: 12,
+          mode: 'scroll',
+          showPageBreak: true,
+          colorMode: 'sepia',
+        },
+      }),
+    );
+    expect(d.page.orientation).toBe('portrait');
+    expect(d.page.marginMm).toBe(15);
+    expect(d.page.mode).toBe('fit');
+    expect(d.page.colorMode).toBe('color');
+  });
+
+  it('keeps every legal enum value unchanged (including P1-reserved node types)', () => {
+    const types = ['text', 'heading', 'todo', 'bullet', 'image', 'note', 'group', 'table', 'code', 'equation', 'bookmark', 'attachment', 'reminder'];
+    const d = parseKBNoteDoc(doc({ nodes: types.map((t, i) => rawNode({ id: `n_${i}`, type: t })) }));
+    expect(d.nodes.map((n) => n.type)).toEqual(types);
+    const p = parseKBNoteDoc(
+      doc({ page: { size: 'A4', orientation: 'landscape', marginMm: 20, mode: 'tiles', showPageBreak: false, colorMode: 'gray' } }),
+    );
+    expect(p.page.orientation).toBe('landscape');
+    expect(p.page.marginMm).toBe(20);
+    expect(p.page.mode).toBe('tiles');
+    expect(p.page.colorMode).toBe('gray');
+  });
+});
