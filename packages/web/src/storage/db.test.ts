@@ -35,4 +35,19 @@ describe('describeDocMeta 坏档隔离', () => {
     expect(() => describeDocMeta(undefined)).not.toThrow();
     expect(() => describeDocMeta(42)).not.toThrow();
   });
+
+  it('旧版本（v2/v3）合法记录不得误标损坏（启动列表正常列出）', () => {
+    // 旧档带 version:2 + 合法 board，快路径直接列出；不得出现 corrupt 标。
+    const meta = describeDocMeta({
+      id: 'legacy1',
+      version: 2,
+      title: '旧档',
+      board: { updatedAt: 3000, createdAt: 100 },
+      nodes: [],
+      edges: [],
+    });
+    expect(meta.id).toBe('legacy1');
+    expect(meta.corrupt).toBeUndefined();
+    expect(meta.title).toBe('旧档');
+  });
 });

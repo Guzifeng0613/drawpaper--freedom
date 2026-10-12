@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { nanoid } from 'nanoid';
 import type { DocMeta, KBNoteDoc, SnapshotMeta, TrashDocMeta } from '@drawpaper/core';
-import { pruneSnapshotsToLatest, safeParseKBNoteDoc, SNAPSHOT_KEEP } from '@drawpaper/core';
+import { pruneSnapshotsToLatest, parseStoredDoc, SNAPSHOT_KEEP } from '@drawpaper/core';
 import { deleteAsset, getAsset, putAsset } from './opfs';
 import { orphansAfterPurge, orphansAfterEmptyTrash, moveOrphansToTrash } from './asset-gc-web';
 
@@ -47,7 +47,8 @@ export function describeDocMeta(r: unknown): DocMeta {
       createdAt: rec.board.createdAt ?? rec.board.updatedAt,
     };
   }
-  const parsed = safeParseKBNoteDoc(r);
+  // 可疑记录：用迁移宽容解析（旧 v2/v3 记录先升到 v4 再校验，不误判损坏）。
+  const parsed = parseStoredDoc(r);
   if (parsed.success) {
     const d = parsed.doc;
     return {
@@ -98,9 +99,9 @@ export class DexieStorageAdapter {
   async loadDoc(id: string): Promise<KBNoteDoc | null> {
     const rec = await db.docs.get(id);
     if (!rec) return null;
-    // 坏档（截断/类型错/未来 schema 漂移）不返回给上层加载，避免整库白屏；
-    // 它仍会在 listDocs 中以「损坏」条目出现，可删除。
-    const parsed = safeParseKBNoteDoc(rec);
+    // 迁移宽容解析：旧 v2/v3 记录先升到 v4 再校验，不误判为坏档；
+    // 真正结构损坏/类型错的记录才返回 null（在 listDocs 中以「损坏」条目出现，可删除）。
+    const parsed = parseStoredDoc(rec);
     return parsed.success ? parsed.doc : null;
   }
 
