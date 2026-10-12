@@ -192,6 +192,8 @@ export function createPanelsApi(store: EditorStoreApi): PanelsApi {
       void hostAdapter.showSaveFilePicker(`${s.doc.title || '未命名画布'}.kbnote`, text);
     },
     requestSave: () => store.getState().requestSave(),
+    retrySave: () => store.getState().retrySave(),
+    relinkActiveFile: () => store.getState().relinkActiveFile(),
 
     // ---- 编辑回调 ----
     undo: () => store.getState().undo(),

@@ -121,3 +121,36 @@ describe('estimateStorageQuota', () => {
     delete nav.storage;
   });
 });
+
+describe('FSA 句柄权限丢失 → 暂停写盘 + 手势内重授权', () => {
+  function fakeHandle(perm: 'granted' | 'prompt' | 'denied') {
+    return {
+      name: 'note.kbnote',
+      queryPermission: vi.fn().mockResolvedValue(perm),
+      requestPermission: vi.fn().mockResolvedValue(perm),
+      createWritable: vi.fn().mockResolvedValue({ write: vi.fn(), close: vi.fn() }),
+    };
+  }
+
+  it('待重授权期间写盘暂停（返回 false，不丢内容）；手势内 granted 后恢复', async () => {
+    const mgr = new ActiveFileManager();
+    (mgr as unknown as { pendingHandle: unknown }).pendingHandle = fakeHandle('granted');
+    expect(mgr.hasPendingReauth()).toBe(true);
+    // 未重授权前 activeHandle 为空 → writeActiveFile 短路返回 false（Dexie 主保存继续）。
+    expect(await mgr.writeActiveFile('{}')).toBe(false);
+    // 用户在按钮手势内重授权。
+    const name = await mgr.relinkActiveFile();
+    expect(name).toBe('note.kbnote');
+    expect(mgr.hasPendingReauth()).toBe(false);
+    // 恢复后写盘真正下发。
+    expect(await mgr.writeActiveFile('{}')).toBe(true);
+  });
+
+  it('手势内 denied/取消 → 保持暂停、不接管写盘', async () => {
+    const mgr = new ActiveFileManager();
+    (mgr as unknown as { pendingHandle: unknown }).pendingHandle = fakeHandle('denied');
+    expect(await mgr.relinkActiveFile()).toBeNull();
+    expect(mgr.hasPendingReauth()).toBe(true);
+    expect(await mgr.writeActiveFile('{}')).toBe(false);
+  });
+});

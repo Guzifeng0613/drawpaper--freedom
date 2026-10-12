@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { nanoid } from 'nanoid';
 import type { DocMeta, KBNoteDoc, SnapshotMeta, TrashDocMeta } from '@drawpaper/core';
-import { pruneSnapshotsToLatest, SNAPSHOT_KEEP } from '@drawpaper/core';
+import { pruneSnapshotsToLatest, safeParseKBNoteDoc, SNAPSHOT_KEEP } from '@drawpaper/core';
 import { deleteAsset, getAsset, putAsset } from './opfs';
 import { orphansAfterPurge, orphansAfterEmptyTrash, moveOrphansToTrash } from './asset-gc-web';
 
@@ -24,6 +24,43 @@ interface SnapshotRow {
 
 /** 回收站行 = 整份文档 + 被删时间。 */
 type TrashRow = KBNoteDoc & { trashedAt: number };
+
+/**
+ * 把一条 docs 表记录映射为列表元信息。
+ * 坏档（字段缺失/类型错/未来 schema 漂移）绝不抛出击穿整个列表：隔离成一条
+ * 「损坏」条目并保留原 id，供用户删除/导出原始数据；其余好文档照常列出。
+ * 快路径只做字段形状检查（避免启动时对每档跑全量 zod），可疑记录才深校验。
+ */
+export function describeDocMeta(r: unknown): DocMeta {
+  const rec = r as (Partial<KBNoteDoc> & { id?: unknown }) | null | undefined;
+  if (
+    rec &&
+    typeof rec === 'object' &&
+    typeof rec.id === 'string' &&
+    rec.board &&
+    typeof rec.board.updatedAt === 'number'
+  ) {
+    return {
+      id: rec.id,
+      title: typeof rec.title === 'string' ? rec.title : '未命名',
+      updatedAt: rec.board.updatedAt,
+      createdAt: rec.board.createdAt ?? rec.board.updatedAt,
+    };
+  }
+  const parsed = safeParseKBNoteDoc(r);
+  if (parsed.success) {
+    const d = parsed.doc;
+    return {
+      id: d.id,
+      title: d.title,
+      updatedAt: d.board.updatedAt,
+      createdAt: d.board.createdAt,
+    };
+  }
+  const id = typeof rec?.id === 'string' ? rec.id : `corrupt-${nanoid()}`;
+  const updatedAt = Number((rec as { board?: { updatedAt?: number } } | null | undefined)?.board?.updatedAt) || 0;
+  return { id, title: '（损坏文档）', updatedAt, createdAt: updatedAt, corrupt: true };
+}
 
 /** docs 表记录 = 完整 KBNoteDoc（索引字段 id / updatedAt / title 供列表排序查询）。 */
 class DrawPaperDB extends Dexie {
@@ -60,17 +97,19 @@ export class DexieStorageAdapter {
 
   async loadDoc(id: string): Promise<KBNoteDoc | null> {
     const rec = await db.docs.get(id);
-    return rec ?? null;
+    if (!rec) return null;
+    // 坏档（截断/类型错/未来 schema 漂移）不返回给上层加载，避免整库白屏；
+    // 它仍会在 listDocs 中以「损坏」条目出现，可删除。
+    const parsed = safeParseKBNoteDoc(rec);
+    return parsed.success ? parsed.doc : null;
   }
 
   async listDocs(): Promise<DocMeta[]> {
     const recs = await db.docs.orderBy(':id').toArray();
-    const metas: DocMeta[] = recs.map((r) => ({
-      id: r.id,
-      title: r.title,
-      updatedAt: r.board.updatedAt,
-      createdAt: r.board.createdAt,
-    }));
+    const metas: DocMeta[] = [];
+    for (const r of recs) {
+      metas.push(describeDocMeta(r));
+    }
     metas.sort((a, b) => b.updatedAt - a.updatedAt);
     return metas;
   }

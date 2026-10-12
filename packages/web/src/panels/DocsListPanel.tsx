@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FileText, FilePlus2, Copy, Trash2, Pencil, ChevronDown } from 'lucide-react';
+import { FileText, FilePlus2, Copy, Trash2, Pencil, ChevronDown, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
@@ -53,6 +53,41 @@ function DocRow({
     if (t) api.renameDoc(doc.id, t);
     setEditing(false);
   };
+
+  // 坏档隔离行：不打开、不重命名、不复制，仅展示 + 删除（原始记录经回收站可追溯）。
+  if (doc.corrupt) {
+    return (
+      <div
+        className="group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm"
+        title="此文档记录损坏，无法打开；可删除（移入回收站）"
+      >
+        <FileWarning className="h-4 w-4 shrink-0 text-amber-600" />
+        <span className="flex-1 truncate text-amber-700">
+          损坏文档
+          <span className="ml-1 rounded-full bg-amber-500/15 px-1 text-[9px] text-amber-700">损坏</span>
+        </span>
+        <button
+          type="button"
+          title="删除损坏记录"
+          className="rounded p-1 text-muted-foreground hover:text-destructive"
+          onClick={openConfirm}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+        <ConfirmDialog
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          title="删除损坏记录？"
+          confirmText="删除"
+          onConfirm={() => api.removeDoc(doc.id)}
+        >
+          <p className="text-sm text-muted-foreground">
+            将把这条无法解析的记录移入回收站；其余文档不受影响。
+          </p>
+        </ConfirmDialog>
+      </div>
+    );
+  }
 
   return (
     <div

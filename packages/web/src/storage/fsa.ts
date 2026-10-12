@@ -104,6 +104,8 @@ const fsaDb = new FsaDB();
 /** 活动文件管理器：实现 core 的 FsaCapability 接口。 */
 export class ActiveFileManager implements FsaCapability {
   private activeHandle: FileSystemFileHandleLike | null = null;
+  /** 已从 IndexedDB 恢复、但 readwrite 权限不足（重启后丢失）的句柄：写盘暂停，待手势内重授权。 */
+  private pendingHandle: FileSystemFileHandleLike | null = null;
   private writeTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingText: string | null = null;
   private pendingResolve: ((ok: boolean) => void) | null = null;
@@ -192,12 +194,16 @@ export class ActiveFileManager implements FsaCapability {
   /** 清除活动句柄（不落盘关系解除）。 */
   clear(): void {
     this.activeHandle = null;
+    this.pendingHandle = null;
     if (this.writeTimer !== undefined) clearTimeout(this.writeTimer);
   }
 
   /**
-   * 刷新后恢复上次活动句柄（需用户重新授权 readwrite）。
-   * 成功返回文件名，失败/未授权返回 null。
+   * 启动时恢复上次活动句柄。此处在无用户手势的 bootstrap 中调用：只 queryPermission，
+   * 绝不弹 requestPermission（无手势会被浏览器静默降级，无法真正授权）。
+   *  - 已 granted：直接接管写盘，返回文件名；
+   *  - 权限丢失（prompt/denied）：句柄存入 pendingHandle，写盘暂停（Dexie 主保存继续，
+   *    待写内容不丢），返回 null；由接线层提示用户在按钮手势内调 relinkActiveFile。
    */
   async restoreActiveFile(): Promise<string | null> {
     if (!this.isSupported()) return null;
@@ -205,12 +211,42 @@ export class ActiveFileManager implements FsaCapability {
       const row = await fsaDb.active.get('current');
       if (!row) return null;
       const handle = row.handle;
-      const perm =
-        (await handle.requestPermission?.({ mode: 'readwrite' })) ??
-        (await handle.queryPermission?.({ mode: 'readwrite' }));
+      const perm = (await handle.queryPermission?.({ mode: 'readwrite' })) ?? 'prompt';
+      if (perm === 'granted') {
+        this.activeHandle = handle;
+        this.pendingHandle = null;
+        return handle.name ?? null;
+      }
+      // 权限不足：挂起待重授权，不静默写、不丢内容。
+      this.pendingHandle = handle;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 是否有因权限丢失而挂起、等待用户手势重新授权的句柄。 */
+  hasPendingReauth(): boolean {
+    return this.pendingHandle !== null;
+  }
+
+  /** 待重授权句柄的文件名（供 UI 展示「需要重新授权 xxx」）。 */
+  pendingReauthName(): string | null {
+    return this.pendingHandle?.name ?? null;
+  }
+
+  /**
+   * 必须在用户手势（按钮点击）内调用：请求 readwrite 权限。
+   * 成功：接管写盘，返回文件名；拒绝/取消：返回 null，写盘保持暂停。
+   */
+  async relinkActiveFile(): Promise<string | null> {
+    if (!this.pendingHandle) return null;
+    try {
+      const perm = await this.pendingHandle.requestPermission?.({ mode: 'readwrite' });
       if (perm !== 'granted') return null;
-      this.activeHandle = handle;
-      return handle.name ?? null;
+      this.activeHandle = this.pendingHandle;
+      this.pendingHandle = null;
+      return this.activeHandle.name ?? null;
     } catch {
       return null;
     }
@@ -218,6 +254,7 @@ export class ActiveFileManager implements FsaCapability {
 
   private async setActive(handle: FileSystemFileHandleLike): Promise<void> {
     this.activeHandle = handle;
+    this.pendingHandle = null;
     try {
       await fsaDb.active.put({ id: 'current', handle });
     } catch {

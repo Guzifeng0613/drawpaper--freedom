@@ -431,3 +431,61 @@ describe('Wave30 undo/redo correctness', () => {
     expect(store.getState().doc.edges).toHaveLength(0);
   });
 });
+
+describe('本地自动保存失败不再静默', () => {
+  function makeStorage(impl: { saveDoc: ReturnType<typeof vi.fn> }) {
+    return {
+      saveDoc: impl.saveDoc,
+      loadDoc: vi.fn(),
+      listDocs: vi.fn().mockResolvedValue([]),
+      deleteDoc: vi.fn(),
+      getAsset: vi.fn(),
+      putAsset: vi.fn(),
+      deleteAsset: vi.fn(),
+    };
+  }
+
+  it('Dexie 主保存遇 QuotaExceededError → saveState=error、onSaveError 收到 quota、重试后 saved', async () => {
+    vi.useFakeTimers();
+    const onSaveError = vi.fn();
+    const saveDoc = vi
+      .fn()
+      .mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'))
+      .mockResolvedValueOnce(undefined);
+    store = createEditorStore(baseDoc([mkNode('a')], []), {
+      analyzer: noopAnalyzer(),
+      storage: makeStorage({ saveDoc }),
+      onSaveError,
+      now: () => 1000,
+    });
+    store.getState().addNode('text', 1, 1);
+    vi.advanceTimersByTime(500);
+    await vi.waitFor(() => expect(saveDoc).toHaveBeenCalledTimes(1));
+    // 失败：显式 error 态 + 配额钩子（不再吞成 idle）。
+    expect(store.getState().saveState).toBe('error');
+    expect(onSaveError).toHaveBeenCalledWith('quota', expect.any(String));
+    // 手动重试一次 → 成功回 saved。
+    store.getState().retrySave();
+    await vi.waitFor(() => expect(saveDoc).toHaveBeenCalledTimes(2));
+    expect(store.getState().saveState).toBe('saved');
+    vi.useRealTimers();
+  });
+
+  it('普通写盘错误 → onSaveError 收到 write-failed', async () => {
+    vi.useFakeTimers();
+    const onSaveError = vi.fn();
+    const saveDoc = vi.fn().mockRejectedValue(new Error('IndexedDB vanished'));
+    store = createEditorStore(baseDoc([mkNode('a')], []), {
+      analyzer: noopAnalyzer(),
+      storage: makeStorage({ saveDoc }),
+      onSaveError,
+      now: () => 1000,
+    });
+    store.getState().addNode('text', 1, 1);
+    vi.advanceTimersByTime(500);
+    await vi.waitFor(() => expect(saveDoc).toHaveBeenCalledTimes(1));
+    expect(store.getState().saveState).toBe('error');
+    expect(onSaveError).toHaveBeenCalledWith('write-failed', expect.any(String));
+    vi.useRealTimers();
+  });
+});

@@ -81,7 +81,26 @@ export type InteractionMode =
   | 'insert'; // 新建块
 
 /** 保存状态（自动保存提示用）。 */
-export type SaveState = 'idle' | 'saving' | 'saved';
+/** 保存状态（自动保存提示用）。 */
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+/**
+ * 纯错误分类（core 零 DOM）：判断是否配额/磁盘已满类错误。
+ * 覆盖 DOMException.name、Firefox NS_ERROR_* 与 message 文本；与 web fsa.ts 同口径。
+ */
+export function classifyStorageErrorKind(err: unknown): 'quota' | 'write-failed' {
+  const name = (err as { name?: string } | null | undefined)?.name;
+  if (
+    name === 'QuotaExceededError' ||
+    name === 'NS_ERROR_FILE_NO_DEVICE_SPACE' ||
+    name === 'NS_ERROR_DOM_FILESYSTEM_NO_MODIFICATION_ALLOWED_ERR'
+  ) {
+    return 'quota';
+  }
+  const msg = (err as { message?: string } | null | undefined)?.message ?? '';
+  if (/quota|no space|no_device_space|enospc/i.test(msg)) return 'quota';
+  return 'write-failed';
+}
 
 /**
  * 多父/成环冲突的用户裁决结果（由 UI 弹窗异步收集后回传）。
@@ -161,6 +180,12 @@ export interface StoreDeps {
   fsa?: FsaCapability;
   /** 模板 id → 工厂（web 注入，6 份示例模板）；createDocFromTemplate 按 id 取用。 */
   templates?: Record<string, TemplateFactory>;
+  /**
+   * 本地自动保存失败通知（web 注入；core 零 DOM）。
+   * quota = 配额/磁盘已满（引导导出）；write-failed = 其他写盘错误（toast）。
+   * 与 FSA 路径共用同一套用户提示。
+   */
+  onSaveError?: (kind: 'quota' | 'write-failed', message?: string) => void;
 }
 
 /** Store 状态形状。 */
@@ -229,8 +254,9 @@ export interface EditorState {
   /**
    * 活动本地文件（File System Access）。只持有文件名用于标题栏「已保存到 xxx.kbnote」；
    * 句柄本体在 web 侧。null = 纯 IndexedDB 自动保存。
+   * needsAuth=true 表示句柄权限丢失、写盘已暂停，需用户在手势内重新授权。
    */
-  activeFile: { name: string } | null;
+  activeFile: { name: string; needsAuth?: boolean } | null;
   /** 手动移动过的块 id（UI 态）：布局时作为 manualFixed 钉住，confirmLayout 后清空。 */
   manuallyMoved: Set<string>;
   /** 当前聚焦分支块 id（工具栏/画布高亮联动）。 */
@@ -402,6 +428,8 @@ export interface EditorActions {
   importKBNoteText(json: string): void;
   /** 触发一次立即落盘（不等防抖窗口）。 */
   requestSave(): void;
+  /** 保存失败后由 UI「重试」按钮触发：复位退避标记并立即落盘一次。 */
+  retrySave(): void;
   /**
    * Wave9 协作：把「远端合并后的 doc」作为新基线直接落库。
    * 不进 undo 栈——重置命令栈基线为新 doc（远端 op 不可撤销，本地 undo 基线随之重置，
@@ -462,6 +490,8 @@ export interface EditorActions {
   openLocalFile(): Promise<void>;
   saveLocalFileAs(): Promise<void>;
   clearActiveFile(): void;
+  /** 用户手势内重新请求活动文件 readwrite 权限；成功后恢复写盘。 */
+  relinkActiveFile(): Promise<void>;
 
   // ---- 附件（OPFS）----
   /** 写入图片 Blob 到 OPFS 并登记 doc.assetRefs；返回引用 src（OPFS 不可用返回 src=''，调用方降级 dataURL）。 */
@@ -548,6 +578,8 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
 
   let stack: CommandStack = createCommandStack(init, { now, coalesceWindowMs: 800 });
   let saveTimer: number | undefined;
+  /** 本次失败是否已退避自动重试过一次（成功后复位）。 */
+  let saveRetryArmed = false;
   let focusNonce = 0;
   let historyNonce = 0;
 
@@ -626,6 +658,7 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
             d.savedAt = now();
             d.dirty = false;
           });
+          saveRetryArmed = false;
           // 保存成功后刷新文档列表侧栏（新建/重命名/复制即时可见，无需手动刷新）。
           if (deps.storage) {
             try {
@@ -637,10 +670,22 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
               /* 列表刷新失败不阻塞保存主流程 */
             }
           }
-        } catch {
+        } catch (err) {
+          // 本地主保存（IndexedDB）失败：不再静默吞成 idle。
+          // 区分配额错误，显式置 error 态并通知接线层（与 FSA 路径共用 toast/弹窗），
+          // 且退避自动重试一次（成功即回 saved），不形成无限重试风暴。
+          const kind = classifyStorageErrorKind(err);
           set((d) => {
-            d.saveState = 'idle';
+            d.saveState = 'error';
           });
+          deps.onSaveError?.(kind, err instanceof Error ? err.message : undefined);
+          if (!saveRetryArmed) {
+            saveRetryArmed = true;
+            saveTimer = setTimeout(() => {
+              saveTimer = undefined;
+              void flushSave();
+            }, 1500);
+          }
         }
       };
 
@@ -1769,6 +1814,10 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
         requestSave: () => {
           void flushSave();
         },
+        retrySave: () => {
+          saveRetryArmed = false;
+          void flushSave();
+        },
         applyRemoteDoc: (doc) => {
           // 远端合并结果作为新基线：重置命令栈（远端 op 不进 undo），落盘。
           stack = createCommandStack(doc, { now, coalesceWindowMs: 800 });
@@ -2207,6 +2256,17 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
           set((d) => {
             d.activeFile = null;
           });
+        },
+        relinkActiveFile: async () => {
+          if (!deps.fsa?.relinkActiveFile) return;
+          const name = await deps.fsa.relinkActiveFile();
+          if (name) {
+            set((d) => {
+              d.activeFile = { name, needsAuth: false };
+            });
+            // 授权恢复后立即把当前待写内容落盘一次。
+            void flushSave();
+          }
         },
 
         // ================= 附件（OPFS）=================
