@@ -131,6 +131,8 @@ const BlockShellFull = memo(function BlockShellFull({
         }
       };
       const onKey = (ev: KeyboardEvent) => {
+        // IME 组词期按 Esc 只是关输入法候选窗，不得连带退出节点编辑。
+        if (ev.isComposing || ev.keyCode === 229) return;
         if (ev.key === 'Escape') {
           ev.preventDefault();
           ev.stopPropagation();

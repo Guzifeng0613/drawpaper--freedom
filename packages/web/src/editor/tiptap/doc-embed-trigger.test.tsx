@@ -192,6 +192,33 @@ describe('DocEmbedTrigger 组件行为', () => {
     ed.destroy();
   });
 
+  it('事件级守卫：未先发 compositionstart、仅 keydown 自带 isComposing/keyCode229 也让路', async () => {
+    const ed = await createBlockEditor({ content: textDoc });
+    const onPick = vi.fn();
+    render(<DocEmbedTrigger editor={ed} currentDoc={null} onPick={onPick} />);
+    typeAt(ed, '{{');
+    await waitFor(() => expect(bodyHas('目标块一')).toBe(true));
+    // 首键先于 compositionstart 的竞态：直接发 isComposing=true 的 keydown。
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, isComposing: true }),
+      );
+    });
+    expect(onPick).not.toHaveBeenCalled();
+    expect(ed.getText().replace(/\s/g, '')).toBe('{{');
+    // keyCode===229 兜底
+    const kd229 = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+    Object.defineProperty(kd229, 'keyCode', { value: 229 });
+    act(() => window.dispatchEvent(kd229));
+    expect(onPick).not.toHaveBeenCalled();
+    // 普通路径不变
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+    });
+    expect(onPick).toHaveBeenCalledTimes(1);
+    ed.destroy();
+  });
+
   it('代码块内输入 {{ 不弹浮层', async () => {
     const ed = await createBlockEditor({ content: codeDoc });
     const onPick = vi.fn();
