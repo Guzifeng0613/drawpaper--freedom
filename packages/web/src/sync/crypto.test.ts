@@ -195,3 +195,45 @@ describe('crypto.ts PBKDF2 派生密钥会话内缓存（Wave14）', () => {
     }
   });
 });
+
+describe('crypto.ts 信封迭代次数上限（防远端坏档本地派生阻塞）', () => {
+  const validSalt = bytesToBase64Url(new Uint8Array(16));
+  const validNonce = bytesToBase64Url(new Uint8Array(12));
+  const validCt = bytesToBase64Url(new Uint8Array(32));
+  function envWithIt(it: unknown): Envelope {
+    return { v: ENVELOPE_VERSION, kdf: KDF_ID, enc: CIPHER_ID, it: it as number, salt: validSalt, nonce: validNonce, ct: validCt };
+  }
+
+  it.each([1e10, 10_000_000, 1_000_001])(
+    'it=%i 越上限 → bad-envelope，且完全不进入 deriveKey/PBKDF2',
+    async (it) => {
+      const subtleApi = globalThis.crypto.subtle;
+      const origDerive = subtleApi.deriveKey.bind(subtleApi) as typeof subtleApi.deriveKey;
+      let deriveCalls = 0;
+      subtleApi.deriveKey = ((...args: Parameters<typeof origDerive>) => {
+        deriveCalls += 1;
+        return origDerive(...args);
+      }) as typeof origDerive;
+      try {
+        const p = serializeEnvelope(envWithIt(it));
+        expect(() => parseEnvelope(p)).toThrowError(/迭代次数过大/);
+        await expect(decryptBundle(p, 'pw')).rejects.toMatchObject({ name: 'E2eeError', kind: 'bad-envelope' });
+        expect(deriveCalls, '越上限信封绝不应触发 PBKDF2 派生').toBe(0);
+      } finally {
+        subtleApi.deriveKey = origDerive;
+      }
+    },
+  );
+
+  it.each([-5, 0, Number('NaN')] as unknown[])('it=%s 非法 → bad-envelope', (it) => {
+    expect(() => parseEnvelope(serializeEnvelope(envWithIt(it)))).toThrow(E2eeError);
+    expect(() => parseEnvelope(serializeEnvelope(envWithIt(it)))).toThrowError(/迭代次数/);
+  });
+
+  it('合法 it=310000（本端产出）正常解析与往返', async () => {
+    const envBytes = await encryptBundle(bytes('ok'), 'pw-cap');
+    const env = parseEnvelope(envBytes);
+    expect(env.it).toBe(310000);
+    expect(new TextDecoder().decode(await decryptBundle(envBytes, 'pw-cap'))).toBe('ok');
+  });
+});

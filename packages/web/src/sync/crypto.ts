@@ -26,6 +26,12 @@ export const KDF_ID = 'PBKDF2-SHA-256' as const;
 export const CIPHER_ID = 'A256GCM' as const;
 /** PBKDF2 迭代次数（冻结值；OWASP 2023 对 SHA-256 的建议下限即 310000）。 */
 export const PBKDF2_ITERATIONS = 310_000 as const;
+/**
+ * 信封 it 上限：防远端坏档/恶意档声明超大迭代次数导致本地 PBKDF2 阻塞（CPU DoS）。
+ * 本端产出恒为 310_000；历史/对端合法档均远低于此。越界按 bad-envelope 拒绝，
+ * 在进入 deriveKey 之前失败。
+ */
+export const MAX_PBKDF2_ITERATIONS = 1_000_000 as const;
 export const SALT_BYTES = 16 as const;
 export const NONCE_BYTES = 12 as const;
 export const KEY_BITS = 256 as const;
@@ -134,6 +140,12 @@ export function parseEnvelope(envBytes: Uint8Array): Envelope {
   if (o.enc !== CIPHER_ID) throw new E2eeError('bad-envelope', `不支持的对称算法：${String(o.enc)}`);
   if (typeof o.it !== 'number' || !Number.isFinite(o.it) || o.it <= 0) {
     throw new E2eeError('bad-envelope', '信封迭代次数非法');
+  }
+  if (o.it > MAX_PBKDF2_ITERATIONS) {
+    throw new E2eeError(
+      'bad-envelope',
+      `信封迭代次数过大（${o.it} > ${MAX_PBKDF2_ITERATIONS}），拒绝以避免本地派生阻塞`,
+    );
   }
   if (typeof o.salt !== 'string' || typeof o.nonce !== 'string' || typeof o.ct !== 'string') {
     throw new E2eeError('bad-envelope', '信封字段缺失');
