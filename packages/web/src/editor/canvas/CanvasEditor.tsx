@@ -26,6 +26,7 @@ import { useKeyboardShortcuts } from '../state/useKeyboardShortcuts';
 import { registerViewActionHandler } from '../state/view-bus';
 import { mark } from '@/wiring/cold-starts';
 import { useCoarsePointer } from '../state/use-coarse-pointer';
+import { useSoftKeyboardInset } from '../state/use-soft-keyboard-inset';
 import { computeSnap } from '../lib/geometry';
 import { collectFocusSet, collectConnectedSet, collectEdgeChain, applyManualFixed } from '../lib/graph-trace';
 import { classifyFile, dropOffset } from './drop-classify';
@@ -108,6 +109,8 @@ function CanvasInner({ api }: { api: EditorApi }) {
   const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
   const rafRef = useRef<number>(0);
   const coarse = useCoarsePointer();
+  // Wave31 Phase B：触屏软键盘弹起时画布容器补底部安全 padding，编辑块留在键盘上方。
+  const keyboardBottom = useSoftKeyboardInset();
   const docsCollapsed = useUiShell((st) => st.docsCollapsed);
   const [dragOver, setDragOver] = useState(false);
   // 【Wave14 D】空白处上下文菜单：鼠标右键 / 触屏长按共用这一个受控菜单。
@@ -583,6 +586,7 @@ function CanvasInner({ api }: { api: EditorApi }) {
   return (
     <div
       className={`relative h-full w-full ${dragOver ? 'ring-2 ring-inset ring-blue-400' : ''}`}
+      style={{ paddingBottom: keyboardBottom }}
       role="application"
       aria-label="画布"
       ref={(el) => {

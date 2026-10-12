@@ -42,6 +42,8 @@ export function DocEmbedPicker({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 搜索框内 IME 组词期：回车确认拼音候选时不得连带选定候选；keyCode===229 兜底。
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();

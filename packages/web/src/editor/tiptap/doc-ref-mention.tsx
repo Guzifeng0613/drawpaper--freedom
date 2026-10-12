@@ -43,8 +43,15 @@ export function DocRefMention({ editor }: { editor: Editor }) {
       fromRef.current = from;
       setQuery(m[1] ?? '');
       setActive(0);
-      const coords = editor.view.coordsAtPos(from);
-      setPos({ x: coords.left, y: coords.bottom + 4 });
+      // jsdom / 零尺寸容器下 coordsAtPos 可能抛错，兜底 (0,0)，浮层仍可用（同 {{ 触发器约定）。
+      let pos = { x: 0, y: 0 };
+      try {
+        const coords = editor.view.coordsAtPos(from);
+        pos = { x: coords.left, y: coords.bottom + 4 };
+      } catch {
+        /* noop */
+      }
+      setPos(pos);
       setOpen(true);
     };
     editor.on('transaction', update);
@@ -72,6 +79,9 @@ export function DocRefMention({ editor }: { editor: Editor }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      // IME 组词期一律让路：回车确认候选 / 上下键翻候选 / Esc 关候选窗都不得触发选定
+      // 或删除 `[[query` 触发文本；keyCode===229 兜底首个组词键先于 compositionstart 的竞态。
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();

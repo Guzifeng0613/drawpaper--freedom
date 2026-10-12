@@ -136,6 +136,9 @@ export function DocEmbedTrigger({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      // 事件级 IME 守卫：与 composingRef 双保险（首个组词 keydown 先于 compositionstart
+      // 时，composingRef 尚未置位，这里靠事件自带的 isComposing / keyCode===229 兜底）。
+      if (e.isComposing || e.keyCode === 229) return;
       if (composingRef.current) return;
       if (e.key === 'Escape') {
         e.preventDefault();
