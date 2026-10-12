@@ -113,6 +113,8 @@ export interface PanelsApi {
   searchOpen: boolean;
   searchQuery: string;
   searchResults: SearchResultItem[];
+  /** 索引喂入完成（false=分片重建中，面板显示「正在建立索引…」）。 */
+  searchReady: boolean;
   /** 键盘 ↑↓ 选中的结果下标（-1 表示无）。 */
   activeSearchIndex: number;
 

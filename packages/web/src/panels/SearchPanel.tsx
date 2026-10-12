@@ -113,6 +113,11 @@ export const SearchPanel = React.memo(function SearchPanel({ api }: { api: Panel
             <div className="px-3 py-4 text-center text-xs text-muted-foreground">
               输入关键词开始搜索
             </div>
+          ) : !api.searchReady ? (
+            // Wave30：rIC 分片喂入期间索引不完整，不能把空/部分结果误报为「无匹配结果」。
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              正在建立索引…
+            </div>
           ) : api.searchResults.length === 0 ? (
             <div className="px-3 py-4 text-center text-xs text-muted-foreground">无匹配结果</div>
           ) : (

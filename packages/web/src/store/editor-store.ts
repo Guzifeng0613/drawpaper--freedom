@@ -127,7 +127,10 @@ async function bootstrap(): Promise<void> {
 
 /** doc 变更防抖重建 MiniSearch；searchQuery 变化时即时查询。
  *  Wave24：索引构建改为「空占位 + idle 分片喂入」——2k 块下同步 buildIndex
- *  ~865ms 长任务不再压住首帧后的可交互窗口；分片喂完后回放当前搜索词。 */
+ *  ~865ms 长任务不再压住首帧后的可交互窗口；分片喂完后回放当前搜索词。
+ *  Wave30：重建期间保留旧索引继续回答查询，新索引在本地分片喂入、完成后原子替换；
+ *  重建期间 searchReady=false，面板显示「正在建立索引…」而不是把部分/空索引
+ *  误报为「无匹配结果」。 */
 function startSearchSync(): void {
   let index = createEmptyIndex();
   editorStore.getState().setSearchIndex(index);
@@ -137,14 +140,18 @@ function startSearchSync(): void {
 
   const scheduleRebuild = (doc: KBNoteDoc) => {
     feedHandle?.cancel();
-    index = createEmptyIndex();
     feedDocId = doc.id;
-    editorStore.getState().setSearchIndex(index);
-    feedHandle = feedIndexChunked(index, doc, () => {
+    editorStore.getState().setSearchReady(false);
+    // 本地构建新索引：分片喂入期间旧索引仍对外提供结果（不立即换空索引）。
+    const nextIndex = createEmptyIndex();
+    feedHandle = feedIndexChunked(nextIndex, doc, () => {
       if (feedDocId !== doc.id) return; // 已被更新的文档取代，丢弃旧分片
       mark('search-index');
+      index = nextIndex;
+      editorStore.getState().setSearchIndex(nextIndex);
+      editorStore.getState().setSearchReady(true);
       const q = editorStore.getState().searchQuery;
-      if (q) editorStore.getState().setSearchResults(searchDocs(index, q));
+      if (q) editorStore.getState().setSearchResults(searchDocs(nextIndex, q));
     });
   };
 

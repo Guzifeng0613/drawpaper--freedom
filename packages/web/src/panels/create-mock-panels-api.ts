@@ -129,6 +129,7 @@ export function createMockPanelsApi(): PanelsApi {
     exportOpen: false,
     searchOpen: false,
     searchQuery: '',
+    searchReady: true,
     activeSearchIndex: -1,
     focusNodeId: null as string | null,
     activeFileName: '读书笔记.kbnote' as string | null,
@@ -190,6 +191,9 @@ export function createMockPanelsApi(): PanelsApi {
     },
     get searchQuery() {
       return state.searchQuery;
+    },
+    get searchReady() {
+      return state.searchReady;
     },
     searchResults: [] as SearchResultItem[],
     get activeSearchIndex() {

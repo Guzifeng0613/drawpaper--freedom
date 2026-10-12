@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createEditorStore } from './store.js';
 import type { EditorStoreApi } from './store.js';
 import type { BlockNode, Edge, KBNoteDoc } from '../model/index.js';
+import { deriveLinkId } from '../links/index.js';
 
 let store: EditorStoreApi;
 
@@ -350,5 +351,83 @@ describe('applyRemoteDoc（Wave9 协作：远端合并落库）', () => {
     expect(store.getState().doc.nodes.find((n) => n.id === 'b')!.x).toBe(300);
     // 远端 op 不进 undo：撤销栈基线已重置，不能再撤销到本地 move。
     expect(store.getState().canUndo).toBe(false);
+  });
+});
+
+describe('Wave30 undo/redo correctness', () => {
+  beforeEach(() => {
+    store = createEditorStore(baseDoc([mkNode('a'), mkNode('b')], []), { analyzer: noopAnalyzer() });
+  });
+
+  it('renameDoc undo restores old title and redo re-applies', () => {
+    expect(store.getState().doc.title).toBe('t');
+    store.getState().renameDoc('新标题');
+    expect(store.getState().doc.title).toBe('新标题');
+    expect(store.getState().canUndo).toBe(true);
+    store.getState().undo();
+    expect(store.getState().doc.title).toBe('t'); // 修复前：undo 是恒等，标题仍为「新标题」且白耗一步
+    expect(store.getState().canRedo).toBe(true);
+    store.getState().redo();
+    expect(store.getState().doc.title).toBe('新标题');
+  });
+
+  it('two renames undo in reverse order', () => {
+    store.getState().renameDoc('v1');
+    store.getState().renameDoc('v2');
+    store.getState().undo();
+    expect(store.getState().doc.title).toBe('v1');
+    store.getState().undo();
+    expect(store.getState().doc.title).toBe('t');
+  });
+
+  it('link-cleanup macro undo/redo roundtrips docRef marks and cascade edges', () => {
+    // 'a' 正文带一条指向外部块的 docRef mark；删除带连线的 b 时级联摘除该 mark。
+    const td = 'docX';
+    const tn = 'nX';
+    const withMark = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '见下', marks: [{ type: 'docRef', attrs: { targetDocId: td, targetNodeId: tn, targetTitle: '目标' } }] },
+          ],
+        },
+      ],
+    };
+    store.getState().updateContent('a', withMark);
+    const linkId = deriveLinkId('doc1', 'a', td, tn);
+    const aData = () => store.getState().doc.nodes.find((n) => n.id === 'a')!.content.data;
+    const hasMark = () => JSON.stringify(aData()).includes('docRef');
+    expect(hasMark()).toBe(true);
+
+    store.getState().addEdge('a', 'b');
+    store.getState().deleteNodesWithLinkCleanup(['b'], new Set([linkId]));
+    // mark 被摘、b 与边被删
+    expect(hasMark()).toBe(false);
+    expect(store.getState().doc.nodes.map((n) => n.id)).not.toContain('b');
+    expect(store.getState().doc.edges).toHaveLength(0);
+
+    // undo：mark 与 b/边整体还原
+    store.getState().undo();
+    expect(hasMark()).toBe(true);
+    expect(store.getState().doc.nodes.map((n) => n.id)).toContain('b');
+    expect(store.getState().doc.edges).toHaveLength(1);
+
+    // redo：strip 子命令基于当前输入重算（不再硬编码 capture 快照），mark 再摘、b 再删
+    store.getState().redo();
+    expect(hasMark()).toBe(false);
+    expect(store.getState().doc.nodes.map((n) => n.id)).not.toContain('b');
+    expect(store.getState().doc.edges).toHaveLength(0);
+  });
+
+  it('link-cleanup macro redo without drift equals normal deletion', () => {
+    store.getState().addEdge('a', 'b');
+    store.getState().deleteNodesWithLinkCleanup(['b'], new Set());
+    store.getState().undo();
+    expect(store.getState().doc.edges).toHaveLength(1);
+    store.getState().redo();
+    expect(store.getState().doc.nodes.map((n) => n.id)).not.toContain('b');
+    expect(store.getState().doc.edges).toHaveLength(0);
   });
 });
