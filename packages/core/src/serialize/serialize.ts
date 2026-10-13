@@ -202,16 +202,30 @@ export const IMPORT_COPY_SUFFIX = '（导入副本）' as const;
  * 导入碰撞时生成「导入副本」纯函数：
  * - 给文档本身分配新 doc id（`doc_` + nanoid，与 model/factory 同前缀约定）；
  * - 标题追加 {@link IMPORT_COPY_SUFFIX}；
- * - **内部一切关系原样保留**：nodes/edges/tags 自身 id、edge.source/target、
- *   node.parentId、assetRefs、links、sync 元数据全部不动——连线不断、墓碑不丢。
+ * - **节点/边/标签内部关系原样保留**：nodes/edges/tags 自身 id、edge.source/target、
+ *   node.parentId、assetRefs、sync 元数据不动——连线不断、墓碑不丢；
+ * - **links 反链索引随新 doc id 改写**：
+ *   - 每条 link.sourceDocId → 新 id（提及发生在副本这张新文档里）；
+ *   - 文档内提及（targetDocId === 旧 id）的 targetDocId 同步 → 新 id，否则文档内
+ *     引用会变成指向旧文档的悬挂跨文档链；
+ *   - 真正跨文档 link（targetDocId !== 旧 id）targetDocId 保持不变；
+ *   - link 自身 id / sourceNodeId / targetNodeId / targetTitle 保留。
  *
  * 用途：导入的 .kbnote 与库内已有文档同 id 时，绝不覆盖原档；
  * 走本函数 fork 出一份独立新档再落库。零 DOM、纯数据变换。
  */
 export function importedDocWithFreshId(doc: KBNoteDoc): KBNoteDoc {
+  const oldId = doc.id;
+  const newId = `doc_${nanoid()}`;
+  const links = (doc.links ?? []).map((l) => ({
+    ...l,
+    sourceDocId: newId,
+    targetDocId: l.targetDocId === oldId ? newId : l.targetDocId,
+  }));
   return {
     ...doc,
-    id: `doc_${nanoid()}`,
+    id: newId,
     title: `${doc.title}${IMPORT_COPY_SUFFIX}`,
+    links,
   };
 }

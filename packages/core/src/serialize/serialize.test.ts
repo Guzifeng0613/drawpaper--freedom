@@ -320,7 +320,26 @@ describe('importedDocWithFreshId（导入碰撞副本）', () => {
         showPageNumbers: false, edgeLabels: true, pageBreaks: [],
       },
       assetRefs: ['a'.repeat(64)],
-      links: [],
+      links: [
+        {
+          id: 'ln_1',
+          sourceDocId: 'doc_collide',
+          sourceNodeId: 'n_1',
+          targetDocId: 'doc_collide',
+          targetNodeId: 'n_2',
+          targetTitle: '块二',
+          createdAt: 500,
+        },
+        {
+          id: 'ln_2',
+          sourceDocId: 'doc_collide',
+          sourceNodeId: 'n_2',
+          targetDocId: 'doc_other',
+          targetNodeId: 'n_x',
+          targetTitle: '他文档块',
+          createdAt: 600,
+        },
+      ],
       sync: { vv: { cA: 5 }, nodes: { n_1: { f: { x: [5, 'cA'] } } }, edges: { e_1: { t: [4, 'cB'] } } },
     });
     return parseKBNote(text).doc;
@@ -358,13 +377,45 @@ describe('importedDocWithFreshId（导入碰撞副本）', () => {
     }
   });
 
-  it('其余字段（board/assetRefs/links/sync）原样保留', () => {
+  it('其余字段（board/assetRefs/sync）原样保留', () => {
     const src = wiredDoc();
     const copy = importedDocWithFreshId(src);
     expect(copy.board).toEqual(src.board);
     expect(copy.assetRefs).toEqual(src.assetRefs);
-    expect(copy.links).toEqual(src.links);
     expect(copy.sync).toEqual(src.sync);
+  });
+
+  it('fork 后所有 link.sourceDocId 改写为新 doc id', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    for (const l of copy.links) {
+      expect(l.sourceDocId).toBe(copy.id);
+      expect(l.sourceDocId).not.toBe('doc_collide');
+    }
+  });
+
+  it('文档内 link（targetDocId===旧 id）targetDocId 同步改写为新 id', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    const intra = copy.links.find((l) => l.id === 'ln_1');
+    expect(intra?.targetDocId).toBe(copy.id);
+  });
+
+  it('跨文档 link（targetDocId!==旧 id）targetDocId 保持不变', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    const cross = copy.links.find((l) => l.id === 'ln_2');
+    expect(cross?.targetDocId).toBe('doc_other');
+  });
+
+  it('link 自身 id / sourceNodeId / targetNodeId / targetTitle / createdAt 保留', () => {
+    const src = wiredDoc();
+    const copy = importedDocWithFreshId(src);
+    expect(copy.links.map((l) => l.id)).toEqual(src.links.map((l) => l.id));
+    for (const [i, l] of copy.links.entries()) {
+      const s = src.links[i];
+      expect(l.sourceNodeId).toBe(s.sourceNodeId);
+      expect(l.targetNodeId).toBe(s.targetNodeId);
+      expect(l.targetTitle).toBe(s.targetTitle);
+      expect(l.createdAt).toBe(s.createdAt);
+    }
   });
 
   it('连续两次 fork 得到两个互不相同的新 id', () => {
