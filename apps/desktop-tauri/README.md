@@ -24,7 +24,8 @@ apps/desktop-tauri/
    ├─ tauri.conf.json        # productName/identifier/windows/bundle/nsis/wix/
    │                         #   fileAssociations/plugins.updater
    ├─ capabilities/
-   │  └─ default.json       # 最小权限：core/dialog/fs/opener/menu/event/notification/log/updater
+   │  └─ default.json       # 最小权限：core/dialog/opener/menu/event/notification/log/updater
+   │                        #   （不授权 fs 插件：前端零 plugin-fs 引用，文件 IO 全走自定义 Rust invoke）
    ├─ icons/                 # 已提交的完整图标集（icon.ico / Square*.png / installer-*.bmp）
    └─ src/
       ├─ main.rs             # 薄入口，调 lib::run()
