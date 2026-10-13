@@ -230,6 +230,117 @@ describe('mergeSnapshots: 墓碑', () => {
   });
 });
 
+describe('mergeSnapshots: 悬挂边裁剪（Wave33 Phase B）', () => {
+  it('B 给 A 已墓碑删除的节点加边 → 合并后无悬挂边、记 edge-orphaned 冲突', () => {
+    // A：节点 X 已删除（墓碑 lamport 60），Y 存活。
+    const A = baseDoc();
+    addNode(A, n('Y', '存活'), { content: [5, 'cA'] });
+    A.sync.nodes!.X = { t: [60, 'cA'] };
+
+    // B：仍持有旧节点 X，并给 X→Y 加了一条边 e1。
+    const B = baseDoc();
+    addNode(B, n('X', '旧X'), { content: [50, 'cB'] });
+    addNode(B, n('Y', '存活'), { content: [5, 'cA'] });
+    addEdge(B, e('e1', 'X', 'Y'), { source: [55, 'cB'], target: [55, 'cB'] });
+
+    const r = mergeSnapshots(A, B);
+    // 节点 X 被墓碑压制，不在存活集。
+    expect(r.doc.nodes.find((x) => x.id === 'X')).toBeUndefined();
+    // 边 e1 被丢弃。
+    expect(r.doc.edges.find((x) => x.id === 'e1')).toBeUndefined();
+    // 结果 edges 只引用存在节点。
+    const alive = new Set(r.doc.nodes.map((n) => n.id));
+    for (const ed of r.doc.edges) {
+      expect(alive.has(ed.source)).toBe(true);
+      expect(alive.has(ed.target)).toBe(true);
+    }
+    // 记了 edge-orphaned 冲突。
+    const c = r.conflicts.find((x) => x.entity === 'edge' && x.entityId === 'e1');
+    expect(c).toBeDefined();
+    expect(c!.kind).toBe('edge-orphaned');
+    expect(c!.field).toBe('source'); // X 是 source 端点
+    expect(c!.reason).toContain('X');
+  });
+
+  it('两端都在存活集合的边保留、不产生冲突', () => {
+    const A = baseDoc();
+    addNode(A, n('X', 'x'), { content: [5, 'cA'] });
+    addNode(A, n('Y', 'y'), { content: [5, 'cA'] });
+    const B = clone(A) as KBNoteDoc;
+    addEdge(B, e('e1', 'X', 'Y'), { source: [10, 'cB'], target: [10, 'cB'] });
+
+    const r = mergeSnapshots(A, B);
+    expect(r.doc.edges.find((x) => x.id === 'e1')).toBeDefined();
+    expect(r.conflicts.find((x) => x.entity === 'edge')).toBeUndefined();
+  });
+
+  it('自环边（source=target 且节点存活）不被误删', () => {
+    const A = baseDoc();
+    addNode(A, n('N', 'n'), { content: [5, 'cA'] });
+    const B = clone(A) as KBNoteDoc;
+    addEdge(B, e('self', 'N', 'N'), { source: [10, 'cB'], target: [10, 'cB'] });
+
+    const r = mergeSnapshots(A, B);
+    const self = r.doc.edges.find((x) => x.id === 'self');
+    expect(self).toBeDefined();
+    expect(self!.source).toBe('N');
+    expect(self!.target).toBe('N');
+    expect(r.conflicts.find((x) => x.entity === 'edge')).toBeUndefined();
+  });
+
+  it('多条边部分悬挂 → 只丢悬挂的，正常边保留', () => {
+    const A = baseDoc();
+    addNode(A, n('Y', 'y'), { content: [5, 'cA'] });
+    A.sync.nodes!.X = { t: [60, 'cA'] }; // X 被删
+    const B = baseDoc();
+    addNode(B, n('X', '旧X'), { content: [50, 'cB'] });
+    addNode(B, n('Y', 'y'), { content: [5, 'cA'] });
+    addNode(B, n('Z', 'z'), { content: [5, 'cB'] });
+    // e1 悬挂（source=X 已删）；e2 正常（Y→Z 都存活）。
+    addEdge(B, e('e1', 'X', 'Y'), { source: [55, 'cB'], target: [55, 'cB'] });
+    addEdge(B, e('e2', 'Y', 'Z'), { source: [55, 'cB'], target: [55, 'cB'] });
+
+    const r = mergeSnapshots(A, B);
+    expect(r.doc.edges.find((x) => x.id === 'e1')).toBeUndefined();
+    expect(r.doc.edges.find((x) => x.id === 'e2')).toBeDefined();
+    const orphaned = r.conflicts.filter((x) => x.entity === 'edge');
+    expect(orphaned).toHaveLength(1);
+    expect(orphaned[0]!.kind).toBe('edge-orphaned');
+    expect(orphaned[0]!.entityId).toBe('e1');
+  });
+
+  it('端点从未存在（幽灵引用）→ 记 edge-dropped 冲突', () => {
+    const A = baseDoc();
+    addNode(A, n('Y', 'y'), { content: [5, 'cA'] });
+    const B = baseDoc();
+    addNode(B, n('Y', 'y'), { content: [5, 'cA'] });
+    // B 加了一条边指向从未存在的节点 ghost。
+    addEdge(B, e('e_ghost', 'ghost', 'Y'), { source: [10, 'cB'], target: [10, 'cB'] });
+
+    const r = mergeSnapshots(A, B);
+    expect(r.doc.edges.find((x) => x.id === 'e_ghost')).toBeUndefined();
+    const c = r.conflicts.find((x) => x.entity === 'edge' && x.entityId === 'e_ghost');
+    expect(c).toBeDefined();
+    expect(c!.kind).toBe('edge-dropped');
+    expect(c!.field).toBe('source');
+  });
+
+  it('正常无冲突合并不回归（无悬挂边时 conflicts 不增项）', () => {
+    const A = baseDoc();
+    addNode(A, n('X', 'x'), { content: [5, 'cA'] });
+    addNode(A, n('Y', 'y'), { content: [5, 'cA'] });
+    addEdge(A, e('e1', 'X', 'Y'), { source: [5, 'cA'], target: [5, 'cA'] });
+    const B = clone(A) as KBNoteDoc;
+    // B 只改 Y 的内容，不动边。
+    B.nodes[1]!.content = { format: 'tiptap-json', data: { type: 'doc', content: [{ type: 'paragraph', text: 'B改' }] } };
+    B.sync.nodes!.Y!.f!.content = [10, 'cB'];
+
+    const r = mergeSnapshots(A, B, A);
+    expect(r.doc.edges.find((x) => x.id === 'e1')).toBeDefined();
+    expect(r.conflicts.filter((x) => x.entity === 'edge')).toHaveLength(0);
+  });
+});
+
 describe('mergeSnapshots: 幂等与收敛', () => {
   it('重复合入同一 remote 结果文档不变（幂等）', () => {
     const base = baseDoc();

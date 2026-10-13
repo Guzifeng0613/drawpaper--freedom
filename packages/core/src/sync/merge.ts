@@ -330,6 +330,75 @@ function unionById<T extends { id: string }>(a: T[], b: T[]): T[] {
 }
 
 /**
+ * 合并后悬挂边裁剪（Wave33 Phase B）。
+ *
+ * 背景：nodes 与 edges 各自独立合并。B 离线期间 A 删除了节点 X 并墓碑化，
+ * B 却给 X 加了一条边 e=(X,Y)。合并后 X 被墓碑压制（不在存活节点集），
+ * 但 e 作为「新增边」被传播 → 悬挂边静默残留，且未接入冲突上报。
+ *
+ * 语义：以**最终存活节点 id 集合**为准，丢弃任一端点不在集合（含已被墓碑删除
+ * 或从未存在）的边；被丢弃的边以类型化 CollabConflict 记入 conflicts：
+ * - edge-orphaned：缺失端点在 nodes.meta 里有墓碑（节点被并发删除）；
+ * - edge-dropped：缺失端点既不在存活集也无墓碑（幽灵引用）。
+ * 只在合并末尾做一次，保证结果 edges 的 source/target 都引用存在节点。
+ */
+function pruneDanglingEdges(args: {
+  edges: Edge[];
+  edgesMeta: Record<string, EntitySyncMeta>;
+  survivingNodeIds: Set<string>;
+  nodeMeta: Record<string, EntitySyncMeta>;
+  conflicts: CollabConflict[];
+}): { list: Edge[]; meta: Record<string, EntitySyncMeta> } {
+  const { edges, edgesMeta, survivingNodeIds, nodeMeta, conflicts } = args;
+  const kept: Edge[] = [];
+  // 先继承全部边元数据（含已墓碑化、不在 list 里的边）；随后只删除被裁剪边的条目。
+  const keptMeta: Record<string, EntitySyncMeta> = { ...edgesMeta };
+
+  for (const e of edges) {
+    const srcAlive = survivingNodeIds.has(e.source);
+    const tgtAlive = survivingNodeIds.has(e.target);
+    if (srcAlive && tgtAlive) {
+      kept.push(e);
+      continue;
+    }
+
+    // 悬挂边：定位缺失端点，判定 orphaned（有墓碑）vs dropped（幽灵）。
+    const missingEndpoints: Array<{ field: 'source' | 'target'; nodeId: string }> = [];
+    if (!srcAlive) missingEndpoints.push({ field: 'source', nodeId: e.source });
+    if (!tgtAlive) missingEndpoints.push({ field: 'target', nodeId: e.target });
+
+    // 边的最新写入戳（用于 loser 定位）。
+    const eMeta = edgesMeta[e.id];
+    const edgeMark = maxFieldMark(eMeta, [0, 'merge'] as FMarkTuple);
+
+    for (const { field, nodeId } of missingEndpoints) {
+      const tomb = nodeMeta[nodeId]?.t;
+      const kind = tomb ? 'edge-orphaned' : 'edge-dropped';
+      const wMark: EventMarker = tomb
+        ? { lamport: tomb[0], clientId: tomb[1] }
+        : { lamport: 0, clientId: 'merge-prune' };
+      const lMark: EventMarker = { lamport: edgeMark[0], clientId: edgeMark[1] };
+      conflicts.push({
+        entity: 'edge',
+        entityId: e.id,
+        field,
+        kind,
+        winner: sideOf(wMark, null),
+        loser: sideOf(lMark, e),
+        reason:
+          kind === 'edge-orphaned'
+            ? `悬挂边裁剪：边 ${e.id} 的${field === 'source' ? '起点' : '终点'}节点 ${nodeId} 已被 ${wMark.clientId} 删除（墓碑 lamport ${wMark.lamport}），边随端点消失丢弃`
+            : `悬挂边裁剪：边 ${e.id} 的${field === 'source' ? '起点' : '终点'}节点 ${nodeId} 在合并结果中不存在（幽灵引用），边被丢弃`,
+      });
+    }
+    // 从 meta 中移除被裁剪边的条目（不保留其 f 时钟，避免后续合并把幽灵边当活实体传播）。
+    delete keptMeta[e.id];
+  }
+
+  return { list: kept, meta: keptMeta };
+}
+
+/**
  * 快照合并主入口。
  * @param local 本端 v3 文档
  * @param remote 对端 v3 文档
@@ -360,6 +429,19 @@ export function mergeSnapshots(local: KBNoteDoc, remote: KBNoteDoc, base?: KBNot
     getValue: getEdgeField, setValue: setEdgeField,
     conflicts,
   });
+
+  // Wave33 Phase B：以最终存活节点集为准裁剪悬挂边，丢弃任一端点已被墓碑删除
+  // 或不存在的边，并以类型化 CollabConflict（edge-orphaned/edge-dropped）上报。
+  const survivingNodeIds = new Set<string>(nodes.list.map((n) => n.id));
+  const pruned = pruneDanglingEdges({
+    edges: edges.list,
+    edgesMeta: edges.meta,
+    survivingNodeIds,
+    nodeMeta: nodes.meta,
+    conflicts,
+  });
+  const prunedEdges = pruned.list;
+  const prunedEdgesMeta = pruned.meta;
 
   const docMerged = mergeScalarFields({
     entity: 'doc', fields: ['title'],
@@ -393,12 +475,12 @@ export function mergeSnapshots(local: KBNoteDoc, remote: KBNoteDoc, base?: KBNot
     docF: docMerged.meta,
     pageF: pageMerged.meta,
     nodes: nodes.meta,
-    edges: edges.meta,
+    edges: prunedEdgesMeta,
   };
 
   const doc: KBNoteDoc = {
     ...local, title, board,
-    nodes: nodes.list, edges: edges.list, tags, page,
+    nodes: nodes.list, edges: prunedEdges, tags, page,
     assetRefs, links, sync,
   };
   void base;
