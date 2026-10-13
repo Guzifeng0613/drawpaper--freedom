@@ -1,10 +1,11 @@
 import type { EditorStoreApi, KBNoteDoc } from '@drawpaper/core';
-import { parseKBNote, KBNoteFileError, linksAffectedByDeleteDoc } from '@drawpaper/core';
+import { KBNoteFileError, linksAffectedByDeleteDoc } from '@drawpaper/core';
 import type { PanelsApi, SearchResultItem, DocMeta, SnapshotInfo, TrashItem } from '@/panels/panels-api';
 import { pushToast } from '@/panels/lib/toast';
 import { useWiringUi } from './ui-store';
 import { storageAdapter, hostAdapter } from '@/store/editor-store';
 import { db } from '@/storage/db';
+import { importKbnoteTextWithGuard } from './import-doc';
 
 /** 取块正文前 12 字做摘要（失败回退类型名）。 */
 function summarizeNode(n: { type: string; content?: { data?: unknown } }): string {
@@ -169,9 +170,12 @@ export function createPanelsApi(store: EditorStoreApi): PanelsApi {
       void (async () => {
         try {
           const text = await file.text();
-          const { doc, migrationNotes } = parseKBNote(text);
+          // 碰撞防护：库内已有同 id 文档时 fork 为新 id 副本，绝不覆盖原档。
+          const { doc, migrationNotes, collision } = await importKbnoteTextWithGuard(text);
           store.getState().loadDoc(doc);
-          if (migrationNotes.length > 0) {
+          if (collision) {
+            pushToast('success', `检测到同 ID 文档，已作为副本导入「${doc.title}」`);
+          } else if (migrationNotes.length > 0) {
             pushToast('success', `已导入「${doc.title}」（已自动升级 schema）`);
           } else {
             pushToast('success', `已导入「${doc.title}」`);

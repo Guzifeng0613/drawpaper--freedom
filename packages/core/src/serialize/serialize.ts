@@ -2,6 +2,7 @@ import type { KBNoteDoc } from '../model/index.js';
 import { CURRENT_DOC_VERSION, DOC_FORMAT } from '../model/index.js';
 import { safeParseKBNoteDoc } from '../model/index.js';
 import { migrateV2ToV3, migrateV3ToV4 } from '../sync/migrate.js';
+import { nanoid } from 'nanoid';
 
 /**
  * serialize 模块：.kbnote 序列化 / 解析 / 版本迁移。
@@ -192,4 +193,25 @@ export function parseStoredDoc(raw: unknown): StoredDocResult {
   } catch {
     return { success: false };
   }
+}
+
+/** 导入副本标题后缀。 */
+export const IMPORT_COPY_SUFFIX = '（导入副本）' as const;
+
+/**
+ * 导入碰撞时生成「导入副本」纯函数：
+ * - 给文档本身分配新 doc id（`doc_` + nanoid，与 model/factory 同前缀约定）；
+ * - 标题追加 {@link IMPORT_COPY_SUFFIX}；
+ * - **内部一切关系原样保留**：nodes/edges/tags 自身 id、edge.source/target、
+ *   node.parentId、assetRefs、links、sync 元数据全部不动——连线不断、墓碑不丢。
+ *
+ * 用途：导入的 .kbnote 与库内已有文档同 id 时，绝不覆盖原档；
+ * 走本函数 fork 出一份独立新档再落库。零 DOM、纯数据变换。
+ */
+export function importedDocWithFreshId(doc: KBNoteDoc): KBNoteDoc {
+  return {
+    ...doc,
+    id: `doc_${nanoid()}`,
+    title: `${doc.title}${IMPORT_COPY_SUFFIX}`,
+  };
 }

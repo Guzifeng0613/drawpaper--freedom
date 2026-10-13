@@ -15,6 +15,7 @@ import {
 import { loadBacklinks } from '@/storage/backlinks';
 import { mountOverviewDev, unmountOverviewDev } from '@/overview/dev-mount';
 import { requestDeleteNodes } from './block-delete-guard';
+import { importKbnoteTextWithGuard } from './import-doc';
 import { buildPagesSvgAsync } from '@/export/svg-export';
 import { collabManager } from '@/collab/collab-manager';
 import { syncController } from '@/sync/sync-controller';
@@ -79,10 +80,12 @@ export interface DrawpaperDevHook {
   /**
    * 走真实 parseKBNote 路径导入一段 .kbnote 文本（供 e2e 注入 v1/v9 文件）。
    * 成功才 loadDoc；失败不替换当前文档，返回错误 kind。
+   * 同 id 碰撞时与面板导入动作一致：fork 为 fresh-id 副本（collision=true），不覆盖原档。
    */
-  importKbnoteText(text: string):
-    | { ok: true; version: number; migrationNotes: string[] }
-    | { ok: false; errorKind: string };
+  importKbnoteText(text: string): Promise<
+    | { ok: true; version: number; migrationNotes: string[]; collision: boolean }
+    | { ok: false; errorKind: string }
+  >;
   // ---- Wave6b 跨文档双向链接：e2e 数据断言 ----
   /** 当前文档的规范化反链索引（保存时由 flushSave 从正文重建）。 */
   currentLinks(): DocRefLink[];
@@ -347,11 +350,12 @@ export function installDevHooks(): void {
       const blob = await getAsset(ref);
       return blob !== null;
     },
-    importKbnoteText(text: string) {
+    async importKbnoteText(text: string) {
       try {
-        const { doc, migrationNotes } = parseKBNote(text);
+        // 与面板导入动作共用同一碰撞防护接缝：同 id → fresh-id 副本，不覆盖原档。
+        const { doc, migrationNotes, collision } = await importKbnoteTextWithGuard(text);
         editorStore.getState().loadDoc(doc);
-        return { ok: true as const, version: doc.version, migrationNotes };
+        return { ok: true as const, version: doc.version, migrationNotes, collision };
       } catch (e) {
         if (e instanceof KBNoteFileError) return { ok: false as const, errorKind: e.kind };
         return { ok: false as const, errorKind: 'schema' };
