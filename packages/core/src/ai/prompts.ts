@@ -11,14 +11,37 @@ import type { AiTask } from './suggestion-schema.js';
  *  - 把「现有节点 + 纯文本片段 + 现有边」一并塞给模型，避免它凭空想象。
  */
 
-/** 递归提取 Tiptap JSON 纯文本（core 不依赖 @tiptap，纯数据遍历）。 */
+/**
+ * 递归提取 Tiptap JSON 纯文本（core 不依赖 @tiptap，纯数据遍历）。
+ *
+ * 同时用最小鸭子类型识别非 Tiptap 块的自定义 data 形状：
+ * 若对象既无 text 字符串也无 content 数组（即不是 Tiptap 节点），
+ * 按固定优先级 source → url → name → note → title 取第一个非空字符串，
+ * 供 AI 上下文 / SVG 导出 / nodeDigest 拿到公式源码、书签 URL、附件名等。
+ */
 export function extractNodePlainText(data: unknown): string {
   const parts: string[] = [];
+  /** 非 Tiptap 数据对象的文本字段优先级。 */
+  const FIELD_PRIORITY = ['source', 'url', 'name', 'note', 'title'] as const;
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return;
-    const n = node as { text?: unknown; content?: unknown };
-    if (typeof n.text === 'string') parts.push(n.text);
-    if (Array.isArray(n.content)) for (const child of n.content) walk(child);
+    const n = node as Record<string, unknown>;
+    if (typeof n.text === 'string') {
+      parts.push(n.text);
+      return; // Tiptap 文本节点：不继续走鸭子类型
+    }
+    if (Array.isArray(n.content)) {
+      for (const child of n.content) walk(child);
+      return; // Tiptap 容器节点：递归子节点
+    }
+    // 非 Tiptap 数据对象（equation/bookmark/attachment/reminder 等）：按优先级取一个字段。
+    for (const key of FIELD_PRIORITY) {
+      const v = n[key];
+      if (typeof v === 'string' && v.trim()) {
+        parts.push(v);
+        break;
+      }
+    }
   };
   walk(data);
   return parts.join(' ').replace(/\s+/g, ' ').trim();
