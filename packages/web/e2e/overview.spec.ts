@@ -105,13 +105,14 @@ test.describe('Wave6b 全局知识图谱总览', () => {
       ],
       [],
     );
-    await page.evaluate((docs) => {
-      window.__drawpaper__!.importKbnoteText(docs[0]!);
+    await page.evaluate(async (docs) => {
+      // importKbnoteText 现为 async（碰撞防护需查库），必须 await，否则种子文档未导入完。
+      await window.__drawpaper__!.importKbnoteText(docs[0]!);
     }, [docA, docB]);
     // 每次 loadDoc 会重置防抖保存：间隔等待，确保两份文档都落 IndexedDB。
     await page.waitForTimeout(1500);
-    await page.evaluate((docs) => {
-      window.__drawpaper__!.importKbnoteText(docs[1]!);
+    await page.evaluate(async (docs) => {
+      await window.__drawpaper__!.importKbnoteText(docs[1]!);
     }, [docA, docB]);
     await page.waitForTimeout(1500);
     // 挂载总览。
@@ -165,7 +166,7 @@ test.describe('Wave6b 全局知识图谱总览', () => {
   test('2000+ 块多文档：自动折叠 + TTI 在阈值内', async ({ page }) => {
     // 先卸载，灌入 3 文档 × 700 块 = 2100 块。
     await page.evaluate(() => window.__drawpaper__!.unmountOverviewDev());
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       const docs: string[] = [];
       for (let d = 0; d < 3; d++) {
         const blocks: Array<{ id: string; text: string }> = [];
@@ -214,10 +215,10 @@ test.describe('Wave6b 全局知识图谱总览', () => {
           }),
         );
       }
-      // 间隔导入，确保每份都防抖落库。
-      docs.forEach((t) => {
-        window.__drawpaper__!.importKbnoteText(t);
-      });
+      // 间隔导入，确保每份都防抖落库；importKbnoteText 为 async，逐个 await。
+      for (const t of docs) {
+        await window.__drawpaper__!.importKbnoteText(t);
+      }
     });
     // 等待防抖保存落库。
     await page.waitForTimeout(3000);
