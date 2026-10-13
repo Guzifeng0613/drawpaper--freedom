@@ -167,8 +167,14 @@ export function SyncSettingsDialog({
   const doExportBundle = async () => {
     ui.setBundleBusy(true);
     try {
-      const { blob, filename } = await exportAllToKbpackBlob();
+      const { blob, filename, missingAssets } = await exportAllToKbpackBlob();
       downloadBlob(blob, filename);
+      if (missingAssets.length > 0) {
+        // 延迟引入避免循环；运行时 toast。
+        import('@/panels/lib/toast').then(({ pushToast }) => {
+          pushToast('warn', `备份包已生成，但 ${missingAssets.length} 个附件在本地存储中缺失，未包含在备份内`);
+        }).catch(() => undefined);
+      }
     } finally {
       ui.setBundleBusy(false);
     }

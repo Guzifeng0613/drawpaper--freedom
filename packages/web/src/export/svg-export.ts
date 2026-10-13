@@ -44,9 +44,32 @@ function escXml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** 提取块的纯文本（适配 Tiptap JSON 与非 Tiptap 块型的自定义 data 形状）。 */
+function nodePlainText(node: BlockNode): string {
+  // 非 Tiptap 块型：直接按已知 data 形状取文本。
+  if (node.type === 'equation') {
+    const d = node.content.data as { source?: string } | undefined;
+    return d?.source ?? '';
+  }
+  if (node.type === 'bookmark') {
+    const d = node.content.data as { url?: string; title?: string } | undefined;
+    return d?.title ?? d?.url ?? '';
+  }
+  if (node.type === 'attachment') {
+    const d = node.content.data as { name?: string } | undefined;
+    return d?.name ?? '';
+  }
+  if (node.type === 'reminder') {
+    const d = node.content.data as { note?: string; dueAt?: number } | undefined;
+    return d?.note ?? '';
+  }
+  // 默认：Tiptap JSON 递归提取。
+  return extractNodePlainText(node.content.data);
+}
+
 /** 把块内文本按行切成最多 `maxLines` 行（近似宽度，按字符数折行）。 */
 function textLines(node: BlockNode, maxLines = 4, charsPerLine = 18): string[] {
-  const text = extractNodePlainText(node.content.data);
+  const text = nodePlainText(node);
   if (!text) return [];
   const lines: string[] = [];
   let rest = text;

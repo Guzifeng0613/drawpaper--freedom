@@ -69,9 +69,13 @@ export function StorageQuotaDialog() {
   const downloadBackupPack = async () => {
     setPacking(true);
     try {
-      const { blob, filename } = await exportAllToKbpackBlob();
+      const { blob, filename, missingAssets } = await exportAllToKbpackBlob();
       downloadBlob(blob, filename);
-      pushToast('success', '已下载整库备份包（.kbpack）');
+      if (missingAssets.length > 0) {
+        pushToast('warn', `已下载备份包，但 ${missingAssets.length} 个附件缺失未包含在内`);
+      } else {
+        pushToast('success', '已下载整库备份包（.kbpack）');
+      }
       closeQuotaDialog();
     } catch (e) {
       pushToast('error', `备份包导出失败：${e instanceof Error ? e.message : '未知错误'}`);

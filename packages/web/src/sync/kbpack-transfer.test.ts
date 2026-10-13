@@ -25,6 +25,8 @@ const mem = {
   /** 可控的 writeAssetToRef 行为（测试按用例替换）。 */
   writeImpl: (_ref: string, _bytes: Uint8Array): Promise<void> => Promise.resolve(),
   writtenAssets: [] as string[],
+  /** 可控的 getAsset 行为（测试按用例替换；默认返回 null = 模拟 OPFS 中无此资产）。 */
+  getImpl: async (_ref: string): Promise<Blob | null> => null,
 };
 
 vi.mock('@/storage/db', () => ({
@@ -75,7 +77,7 @@ vi.mock('@/storage/opfs', async () => {
   const actual = await vi.importActual<typeof import('@/storage/opfs')>('@/storage/opfs');
   return {
     ...actual,
-    getAsset: async () => null,
+    getAsset: async (ref: string) => mem.getImpl(ref),
     writeAssetToRef: async (ref: string, bytes: Uint8Array) => {
       await mem.writeImpl(ref, bytes);
       mem.writtenAssets.push(ref);
@@ -84,7 +86,7 @@ vi.mock('@/storage/opfs', async () => {
 });
 
 // 导入被测对象与真实错误类（必须在 vi.mock 之后）。
-import { importKbpackBundle } from './kbpack-transfer';
+import { importKbpackBundle, exportAllToKbpackBlob } from './kbpack-transfer';
 import { OpfsUnavailableError } from '@/storage/opfs';
 
 // ---- 文档构造工具 ----
@@ -138,6 +140,7 @@ beforeEach(() => {
   mem.currentDocId = null;
   mem.writtenAssets.length = 0;
   mem.writeImpl = () => Promise.resolve();
+  mem.getImpl = async () => null;
 });
 
 describe('importKbpackBundle 资产回填容错（Wave26 no-OPFS）', () => {
@@ -193,5 +196,44 @@ describe('importKbpackBundle 资产回填容错（Wave26 no-OPFS）', () => {
     expect(summary.skippedAssets).toBe(1);
     expect(mem.writtenAssets).toEqual(['asset-c']);
     expect(mem.docs.has('doc-c')).toBe(true);
+  });
+});
+
+describe('exportAllToKbpackBlob 缺失附件报告', () => {
+  /** 造一个带 arrayBuffer() 方法的假 Blob（JSDOM 环境下原生 Blob.arrayBuffer 可能缺失）。 */
+  function fakeBlob(bytes: Uint8Array): Blob {
+    return { arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer } as unknown as Blob;
+  }
+
+  it('OPFS 中缺失的资产被收集到 missingAssets（不静默跳过）', async () => {
+    const docA = baseDoc('doc-a', '甲', ['asset-missing', 'asset-ok']);
+    mem.docs.set('doc-a', docA);
+    // asset-ok 存在，asset-missing 不存在
+    mem.getImpl = async (ref: string) =>
+      ref === 'asset-ok' ? fakeBlob(new Uint8Array([1, 2, 3])) : null;
+
+    const { missingAssets } = await exportAllToKbpackBlob();
+
+    expect(missingAssets).toContain('asset-missing');
+    expect(missingAssets).not.toContain('asset-ok');
+  });
+
+  it('所有资产都存在时 missingAssets 为空数组', async () => {
+    const docA = baseDoc('doc-a', '甲', ['asset-a', 'asset-b']);
+    mem.docs.set('doc-a', docA);
+    mem.getImpl = async () => fakeBlob(new Uint8Array([1]));
+
+    const { missingAssets } = await exportAllToKbpackBlob();
+
+    expect(missingAssets).toEqual([]);
+  });
+
+  it('无资产引用时 missingAssets 为空', async () => {
+    const docA = baseDoc('doc-a', '甲', []);
+    mem.docs.set('doc-a', docA);
+
+    const { missingAssets } = await exportAllToKbpackBlob();
+
+    expect(missingAssets).toEqual([]);
   });
 });

@@ -55,8 +55,9 @@ function fileStamp(): string {
 /**
  * 导出全部文档为单个 .kbpack（store-only ZIP）Blob。
  * 包含：manifest.json + docs/<id>.kbnote × N + assets/<ref> × M。
+ * 返回 missingAssets：manifest 声明但 OPFS 中读取失败的附件引用（备份不完整项）。
  */
-export async function exportAllToKbpackBlob(): Promise<{ blob: Blob; filename: string }> {
+export async function exportAllToKbpackBlob(): Promise<{ blob: Blob; filename: string; missingAssets: string[] }> {
   editorStore.getState().requestSave();
   await new Promise((r) => setTimeout(r, 400));
 
@@ -72,22 +73,23 @@ export async function exportAllToKbpackBlob(): Promise<{ blob: Blob; filename: s
     entries.push({ name: `docs/${doc.id}.kbnote`, data: encodeText(serializeKBNote(doc)) });
   }
 
-  // 资产二进制（按 manifest 收集去重）。
+  // 资产二进制（按 manifest 收集去重）；读取失败的 ref 计入 missingAssets 并跳过。
   const assetRefs = new Set<string>();
   for (const doc of stamped) for (const ref of doc.assetRefs) assetRefs.add(ref);
-  let assetsRestored = 0;
+  const missingAssets: string[] = [];
   for (const ref of assetRefs) {
     const blob = await getAsset(ref);
-    if (!blob) continue;
+    if (!blob) {
+      missingAssets.push(ref);
+      continue;
+    }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     entries.push({ name: `assets/${ref}`, data: bytes });
-    assetsRestored += 1;
   }
-  void assetsRestored;
 
   const zip = packZip(entries);
   const out = new Blob([zip.buffer as ArrayBuffer], { type: 'application/octet-stream' });
-  return { blob: out, filename: `drawpaper-backup-${fileStamp()}.kbpack` };
+  return { blob: out, filename: `drawpaper-backup-${fileStamp()}.kbpack`, missingAssets };
 }
 
 /** 触发浏览器下载（Blob → a[download]）。 */
