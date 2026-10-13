@@ -259,6 +259,88 @@ describe('剪贴板 / 导入导出', () => {
     }
   });
 
+  it('consecutive pastes cascade by 24*N with strictly increasing, non-overlapping coords and unique ids', () => {
+    store = createEditorStore(
+      baseDoc([mkNode('n1', 0, 0), mkNode('n2', 300, 0)], [mkEdge('e1', 'n1', 'n2')]),
+      { analyzer: noopAnalyzer() },
+    );
+    store.getState().setSelection(['n1', 'n2']);
+    store.getState().copy();
+
+    // 连续粘贴 3 次：记录每次 paste 后选中（即本次粘贴产物）的坐标
+    const groups: { x: number; y: number }[][] = [];
+    for (let i = 0; i < 3; i++) {
+      store.getState().paste();
+      const pts = [...store.getState().selection]
+        .map((id) => store.getState().doc.nodes.find((n) => n.id === id)!)
+        .sort((a, b) => a.x - b.x)
+        .map((n) => ({ x: n.x, y: n.y }));
+      groups.push(pts);
+    }
+
+    // 原 2 节点保留 + 3 次粘贴 × 2 = 8 节点；原边 e1 保留 + 3 条新边 = 4 边
+    expect(store.getState().doc.nodes).toHaveLength(8);
+    expect(store.getState().doc.edges).toHaveLength(4);
+
+    // 第 N 次粘贴：相对原始坐标偏移 24*N（n1 在 (0,0)、n2 在 (300,0)）
+    for (let i = 0; i < 3; i++) {
+      const N = i + 1;
+      expect(groups[i][0]).toEqual({ x: 24 * N, y: 24 * N });
+      expect(groups[i][1]).toEqual({ x: 300 + 24 * N, y: 24 * N });
+    }
+
+    // 相邻两次粘贴组坐标严格递进（x、y 均差 24），互不重叠
+    for (let i = 1; i < 3; i++) {
+      expect(groups[i][0].x - groups[i - 1][0].x).toBe(24);
+      expect(groups[i][0].y - groups[i - 1][0].y).toBe(24);
+    }
+
+    // 所有节点 / 边 id 全不撞（含原始与三次粘贴产物）
+    const nodeIds = store.getState().doc.nodes.map((n) => n.id);
+    expect(new Set(nodeIds).size).toBe(nodeIds.length);
+    const edgeIds = store.getState().doc.edges.map((e) => e.id);
+    expect(new Set(edgeIds).size).toBe(edgeIds.length);
+  });
+
+  it('new copy resets cascade offset back to +24', () => {
+    store = createEditorStore(baseDoc([mkNode('n1', 0, 0)], []), { analyzer: noopAnalyzer() });
+    store.getState().setSelection(['n1']);
+    store.getState().copy();
+    store.getState().paste(); // 第 1 次 → (24,24)
+    store.getState().paste(); // 第 2 次 → (48,48)
+    // 重新 copy → 级联计数归零
+    store.getState().setSelection(['n1']);
+    store.getState().copy();
+    store.getState().paste(); // 应回到 +24 → 又一个 (24,24)
+
+    const at = (x: number, y: number) =>
+      store.getState().doc.nodes.filter((n) => n.x === x && n.y === y);
+    // (24,24)：首次粘贴 1 个 + 重置后粘贴 1 个 = 2 个
+    expect(at(24, 24)).toHaveLength(2);
+    // (48,48)：仅第 2 次粘贴 1 个
+    expect(at(48, 48)).toHaveLength(1);
+  });
+
+  it('paste undo/redo restores the pasted group at its cascade offset', () => {
+    store = createEditorStore(baseDoc([mkNode('n1', 0, 0)], []), { analyzer: noopAnalyzer() });
+    store.getState().setSelection(['n1']);
+    store.getState().copy();
+    store.getState().paste(); // → (24,24)
+    store.getState().paste(); // → (48,48)
+    expect(store.getState().doc.nodes).toHaveLength(3);
+
+    // undo 最近一次粘贴：移除 (48,48) 组，保留 (24,24) 组
+    store.getState().undo();
+    expect(store.getState().doc.nodes).toHaveLength(2);
+    expect(store.getState().doc.nodes.find((n) => n.x === 48 && n.y === 48)).toBeUndefined();
+    expect(store.getState().doc.nodes.find((n) => n.x === 24 && n.y === 24)).toBeTruthy();
+
+    // redo：在原级联偏移 (48,48) 恢复
+    store.getState().redo();
+    expect(store.getState().doc.nodes).toHaveLength(3);
+    expect(store.getState().doc.nodes.find((n) => n.x === 48 && n.y === 48)).toBeTruthy();
+  });
+
   it('export/import round-trips through serialize', () => {
     store = createEditorStore(baseDoc([mkNode('a')], []), { analyzer: noopAnalyzer() });
     store.getState().addNode('heading', 20, 20);

@@ -582,6 +582,11 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
   let saveRetryArmed = false;
   let focusNonce = 0;
   let historyNonce = 0;
+  /**
+   * 同一剪贴板连续粘贴的级联偏移计数（会话态，不落 doc / undo）。
+   * 第 N 次粘贴偏移 24*N；新一次 copy/cut 后归零，下次 paste 回到 +24 档。
+   */
+  let pasteCascade = 0;
 
   // ---- 自动快照（打开时 + 每 5 分钟，有改动才拍；仅 storage 支持时启用）----
   const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
@@ -1724,6 +1729,7 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
           const { doc, selection } = get();
           const nodes = doc.nodes.filter((n) => selection.has(n.id));
           const edges = doc.edges.filter((e) => selection.has(e.source) && selection.has(e.target));
+          pasteCascade = 0;
           set((d) => {
             d.clipboard = deepClone({ nodes, edges });
           });
@@ -1736,13 +1742,15 @@ export function createEditorStore(init: KBNoteDoc, deps: StoreDeps = {}): Editor
         paste: () => {
           const s = get();
           if (!s.clipboard || s.clipboard.nodes.length === 0) return;
+          pasteCascade += 1;
+          const pasteOffset = 24 * pasteCascade;
           const oldToNew = new Map<string, string>();
           for (const n of s.clipboard.nodes) oldToNew.set(n.id, nanoid());
           const nodes: BlockNode[] = s.clipboard.nodes.map((n) => {
             const copy = deepClone(n);
             copy.id = oldToNew.get(n.id)!;
-            copy.x += 24;
-            copy.y += 24;
+            copy.x += pasteOffset;
+            copy.y += pasteOffset;
             copy.parentId = copy.parentId ? (oldToNew.get(copy.parentId) ?? null) : null;
             return copy;
           });
