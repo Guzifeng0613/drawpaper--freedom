@@ -215,13 +215,13 @@ test.describe('Wave6b 全局知识图谱总览', () => {
           }),
         );
       }
-      // 间隔导入，确保每份都防抖落库；importKbnoteText 为 async，逐个 await。
+      // 直接落 IndexedDB（不经过 switchDoc 防抖，避免连续导入被合并只留最后一份），逐个 await。
       for (const t of docs) {
-        await window.__drawpaper__!.importKbnoteText(t);
+        const r = await window.__drawpaper__!.seedDocDirect(t);
+        if (r.nodeCount !== 700) throw new Error(`seedDocDirect 节点数异常: ${r.nodeCount}`);
       }
     });
-    // 等待防抖保存落库。
-    await page.waitForTimeout(3000);
+    // seedDocDirect 已 await 落库，无需再等防抖保存。
     // 挂载并测 TTI：从 mountOverviewDev 到 overview-canvas 可见 ≤ 15s（主画布同口径）。
     const t0 = Date.now();
     await page.evaluate(() => window.__drawpaper__!.mountOverviewDev());

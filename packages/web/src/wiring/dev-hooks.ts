@@ -86,6 +86,13 @@ export interface DrawpaperDevHook {
     | { ok: true; version: number; migrationNotes: string[]; collision: boolean }
     | { ok: false; errorKind: string }
   >;
+  /**
+   * 直接把一段 .kbnote 文本解析后落 IndexedDB（db.docs.put），不经过 loadDoc/switchDoc、
+   * 不触发 500ms 防抖自动保存，供「预置多份文档再挂载总览」类性能/聚合测试确定性播种
+   *（连续 switchDoc 会被防抖合并，只保留最后一份；直接 put 无此竞态，各引擎行为一致）。
+   * 返回文档 id 与节点数；解析失败抛错（evaluate 内 reject）。
+   */
+  seedDocDirect(text: string): Promise<{ id: string; nodeCount: number }>;
   // ---- Wave6b 跨文档双向链接：e2e 数据断言 ----
   /** 当前文档的规范化反链索引（保存时由 flushSave 从正文重建）。 */
   currentLinks(): DocRefLink[];
@@ -360,6 +367,11 @@ export function installDevHooks(): void {
         if (e instanceof KBNoteFileError) return { ok: false as const, errorKind: e.kind };
         return { ok: false as const, errorKind: 'schema' };
       }
+    },
+    async seedDocDirect(text: string) {
+      const { doc } = parseKBNote(text);
+      await db.docs.put(doc);
+      return { id: doc.id, nodeCount: doc.nodes.length };
     },
     currentLinks() {
       return [...editorStore.getState().doc.links];
