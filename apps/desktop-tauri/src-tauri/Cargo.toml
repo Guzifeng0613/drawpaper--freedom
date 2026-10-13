@@ -1,6 +1,6 @@
 [package]
 name = "drawpaper"
-version = "0.1.0-rc.26"
+version = "0.1.0-rc.27"
 description = "drawpaper — local-first infinite-canvas knowledge-block note tool (Windows desktop shell)"
 edition = "2021"
 rust-version = "1.77"

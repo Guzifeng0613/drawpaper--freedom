@@ -1,6 +1,6 @@
 {
   "name": "@drawpaper/mobile-capacitor",
-  "version": "0.1.0-rc.26",
+  "version": "0.1.0-rc.27",
   "private": true,
   "description": "drawpaper tablet shell (Capacitor). PWA-first; this folder only owns the native wrapper config and a reference HostAdapter mapping. Not part of the root pnpm workspace.",
   "type": "module",
