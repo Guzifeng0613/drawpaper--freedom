@@ -8,8 +8,14 @@ import type { EventMarker } from './clock.js';
 /** 冲突涉及的实体类型。 */
 export type ConflictEntity = 'node' | 'edge' | 'doc' | 'page';
 
-/** 冲突种类：reparent = 同一节点并发改挂到不同父（结构性）；field-lww = 同字段并发写。 */
-export type ConflictKind = 'reparent' | 'field-lww';
+/**
+ * 冲突种类：
+ * - reparent = 同一节点并发改挂到不同父（结构性）；
+ * - field-lww = 同字段并发写；
+ * - edge-orphaned = 边的某个端点节点在合并后被墓碑删除，边因端点消失被丢弃；
+ * - edge-dropped = 边的某个端点节点在合并后不存在（既不在存活集也无墓碑，幽灵引用），边被丢弃。
+ */
+export type ConflictKind = 'reparent' | 'field-lww' | 'edge-orphaned' | 'edge-dropped';
 
 /** 冲突一方（赢家或输家）的定位与取值。 */
 export interface ConflictSide {
@@ -106,6 +112,15 @@ export function describeConflict(c: CollabConflict, names?: NameMap): string {
       `${wName} 与 ${lName} 同时把 ${nodeRef} 改挂到不同父节点：`,
       `${wName} 挂到「${summarizeValue(w.value)}」，${lName} 挂到「${summarizeValue(l.value)}」。`,
       `已保留 ${wName} 的结果（Lamport ${w.lamport}），${lName} 的改动因并发冲突未生效。`,
+    ].join('');
+  }
+
+  if (c.kind === 'edge-orphaned' || c.kind === 'edge-dropped') {
+    const edgeRef = c.entityId ? `边「${c.entityId}」` : '该边';
+    const action = c.kind === 'edge-orphaned' ? '其端点节点被并发删除' : '其端点节点不存在';
+    return [
+      `${lName} 创建的${edgeRef}${action}，已在合并时丢弃以避免悬挂边。`,
+      c.reason ? `${c.reason}。` : '',
     ].join('');
   }
 
