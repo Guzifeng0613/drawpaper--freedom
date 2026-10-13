@@ -63,18 +63,31 @@ test('docRef mark 保存后重建 links；导出/导入持久化；反链可见�
   const linkCount = await page.evaluate(() => window.__drawpaper__!.currentLinks().length);
   expect(linkCount).toBe(1);
 
-  // 4) 导出文本含 links；重新导入后 links 仍在。
+  // 4) 导出文本含 links；同 id 再导入 → 碰撞 fork 为副本（不覆盖原档）。
   const exported = await page.evaluate(() => window.__drawpaper__!.exportCurrent());
   expect(exported).toContain('"links"');
   const reimported = await page.evaluate((text) => window.__drawpaper__!.importKbnoteText(text), exported);
   expect(reimported.ok).toBe(true);
-  const afterReimport = await page.evaluate(() => window.__drawpaper__!.currentLinks().length);
-  expect(afterReimport).toBe(1);
+  if (reimported.ok) expect(reimported.collision).toBe(true);
 
-  // 5) docB 侧反链：能看到来自 docA/n_A1 的一条。
+  // 副本内链接仍在、target 不丢；sourceDocId 已改写为副本新 id。
+  const forkId = (await page.evaluate(() => window.__drawpaper__!.getState())).doc.id;
+  expect(forkId).not.toBe('doc_A');
+  const forkLinks = await page.evaluate(() => window.__drawpaper__!.currentLinks());
+  expect(forkLinks).toHaveLength(1);
+  expect((forkLinks[0] as { targetDocId: string }).targetDocId).toBe('doc_B');
+  expect((forkLinks[0] as { targetNodeId: string }).targetNodeId).toBe('n_B1');
+  expect((forkLinks[0] as { targetTitle: string }).targetTitle).toBe('目标块B');
+  expect((forkLinks[0] as { sourceDocId: string }).sourceDocId).toBe(forkId);
+
+  // 5) docB 侧反链：原档与副本各贡献一条——sourceDocId 分别是旧 id 与新副本 id
+  //    （不是两条都旧 id；fork 已把 link.sourceDocId 改写为新 doc id）。
   const backlinks = await page.evaluate(() => window.__drawpaper__!.backlinksTo('doc_B', 'n_B1'));
-  expect(backlinks).toHaveLength(1);
-  expect((backlinks[0] as { sourceDocId: string }).sourceDocId).toBe('doc_A');
+  expect(backlinks).toHaveLength(2);
+  const sources = backlinks
+    .map((b) => (b as { sourceDocId: string }).sourceDocId)
+    .sort();
+  expect(sources).toEqual(['doc_A', forkId].sort());
 
   // 6) 删除 docB → docA 的链接记录保留不丢。
   await page.evaluate(() => window.__drawpaper__!.invoke('deleteDoc', 'doc_B'));

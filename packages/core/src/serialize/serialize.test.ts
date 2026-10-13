@@ -7,10 +7,13 @@ import {
   MIGRATION_REGISTRY,
   MIGRATION_NOTES,
   KBNoteFileError,
+  importedDocWithFreshId,
+  IMPORT_COPY_SUFFIX,
 } from './serialize.js';
 import { KBNoteParseError, safeParseKBNoteDoc } from '../model/schema.js';
 import { createDoc, createNode } from '../model/factory.js';
 import { DOC_FORMAT, CURRENT_DOC_VERSION } from '../model/index.js';
+import type { KBNoteDoc } from '../model/index.js';
 
 /** 手工构造一份 v1 文档（无 links 字段），模拟旧版 .kbnote。 */
 function v1Doc(): Record<string, unknown> {
@@ -291,5 +294,136 @@ describe('v3 -> v4 migration (asset ref normalization)', () => {
     delete (raw as Record<string, unknown>)['assetRefs'];
     const { doc } = parseKBNote(JSON.stringify(raw));
     expect(doc.assetRefs).toEqual([]);
+  });
+});
+
+describe('importedDocWithFreshId（导入碰撞副本）', () => {
+  /** 一份带连线的最小合法 v4 文档。 */
+  function wiredDoc(): KBNoteDoc {
+    const text = JSON.stringify({
+      format: DOC_FORMAT,
+      version: 4,
+      id: 'doc_collide',
+      title: '我的画布',
+      board: { createdAt: 111, updatedAt: 222 },
+      nodes: [
+        { id: 'n_1', type: 'text', x: 0, y: 0, width: 260, height: 80, parentId: null, content: { format: 'tiptap-json', data: { type: 'doc' } } },
+        { id: 'n_2', type: 'text', x: 300, y: 0, width: 260, height: 80, parentId: 'n_1', content: { format: 'tiptap-json', data: { type: 'doc' } } },
+      ],
+      edges: [{ id: 'e_1', source: 'n_1', target: 'n_2' }],
+      tags: [{ id: 't_1', name: 'a', color: '#fff' }],
+      layout: { mode: 'mindmap-right', rankSpacing: 90, nodeSpacing: 28 },
+      viewport: { x: 0, y: 0, zoom: 1 },
+      page: {
+        size: 'A4', orientation: 'portrait', marginMm: 15, mode: 'fit',
+        showPageBreak: true, colorMode: 'color', header: false, footer: false,
+        showPageNumbers: false, edgeLabels: true, pageBreaks: [],
+      },
+      assetRefs: ['a'.repeat(64)],
+      links: [
+        {
+          id: 'ln_1',
+          sourceDocId: 'doc_collide',
+          sourceNodeId: 'n_1',
+          targetDocId: 'doc_collide',
+          targetNodeId: 'n_2',
+          targetTitle: '块二',
+          createdAt: 500,
+        },
+        {
+          id: 'ln_2',
+          sourceDocId: 'doc_collide',
+          sourceNodeId: 'n_2',
+          targetDocId: 'doc_other',
+          targetNodeId: 'n_x',
+          targetTitle: '他文档块',
+          createdAt: 600,
+        },
+      ],
+      sync: { vv: { cA: 5 }, nodes: { n_1: { f: { x: [5, 'cA'] } } }, edges: { e_1: { t: [4, 'cB'] } } },
+    });
+    return parseKBNote(text).doc;
+  }
+
+  it('分配新 doc id：不与原 id 撞，带 doc_ 前缀', () => {
+    const src = wiredDoc();
+    const copy = importedDocWithFreshId(src);
+    expect(copy.id).not.toBe(src.id);
+    expect(copy.id).toMatch(/^doc_[A-Za-z0-9_-]{10,}$/);
+  });
+
+  it('标题追加导入副本后缀', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    expect(copy.title).toBe(`我的画布${IMPORT_COPY_SUFFIX}`);
+  });
+
+  it('内部节点/边/标签 id 集合原样保留', () => {
+    const src = wiredDoc();
+    const copy = importedDocWithFreshId(src);
+    expect(copy.nodes.map((n) => n.id)).toEqual(src.nodes.map((n) => n.id));
+    expect(copy.edges.map((e) => e.id)).toEqual(src.edges.map((e) => e.id));
+    expect(copy.tags.map((t) => t.id)).toEqual(src.tags.map((t) => t.id));
+  });
+
+  it('边 source/target 与节点 parentId 引用仍闭合', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    const nodeIds = new Set(copy.nodes.map((n) => n.id));
+    for (const e of copy.edges) {
+      expect(nodeIds.has(e.source)).toBe(true);
+      expect(nodeIds.has(e.target)).toBe(true);
+    }
+    for (const n of copy.nodes) {
+      if (n.parentId) expect(nodeIds.has(n.parentId)).toBe(true);
+    }
+  });
+
+  it('其余字段（board/assetRefs/sync）原样保留', () => {
+    const src = wiredDoc();
+    const copy = importedDocWithFreshId(src);
+    expect(copy.board).toEqual(src.board);
+    expect(copy.assetRefs).toEqual(src.assetRefs);
+    expect(copy.sync).toEqual(src.sync);
+  });
+
+  it('fork 后所有 link.sourceDocId 改写为新 doc id', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    for (const l of copy.links) {
+      expect(l.sourceDocId).toBe(copy.id);
+      expect(l.sourceDocId).not.toBe('doc_collide');
+    }
+  });
+
+  it('文档内 link（targetDocId===旧 id）targetDocId 同步改写为新 id', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    const intra = copy.links.find((l) => l.id === 'ln_1');
+    expect(intra?.targetDocId).toBe(copy.id);
+  });
+
+  it('跨文档 link（targetDocId!==旧 id）targetDocId 保持不变', () => {
+    const copy = importedDocWithFreshId(wiredDoc());
+    const cross = copy.links.find((l) => l.id === 'ln_2');
+    expect(cross?.targetDocId).toBe('doc_other');
+  });
+
+  it('link 自身 id / sourceNodeId / targetNodeId / targetTitle / createdAt 保留', () => {
+    const src = wiredDoc();
+    const copy = importedDocWithFreshId(src);
+    expect(copy.links.map((l) => l.id)).toEqual(src.links.map((l) => l.id));
+    for (const [i, l] of copy.links.entries()) {
+      const s = src.links[i];
+      expect(l.sourceNodeId).toBe(s.sourceNodeId);
+      expect(l.targetNodeId).toBe(s.targetNodeId);
+      expect(l.targetTitle).toBe(s.targetTitle);
+      expect(l.createdAt).toBe(s.createdAt);
+    }
+  });
+
+  it('连续两次 fork 得到两个互不相同的新 id', () => {
+    const src = wiredDoc();
+    const c1 = importedDocWithFreshId(src);
+    const c2 = importedDocWithFreshId(src);
+    expect(c1.id).not.toBe(src.id);
+    expect(c2.id).not.toBe(src.id);
+    expect(c1.id).not.toBe(c2.id);
   });
 });
