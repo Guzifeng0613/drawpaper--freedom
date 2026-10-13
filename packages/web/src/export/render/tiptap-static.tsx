@@ -113,6 +113,15 @@ export function renderNode(node: PMNode, gray: boolean): React.ReactNode {
       const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : '';
       return src ? <img src={src} alt={alt} className="max-w-full" /> : null;
     }
+    case 'codeBlock': {
+      const language = typeof node.attrs?.language === 'string' ? node.attrs.language : '';
+      const cls = language ? `hljs language-${language}` : 'hljs';
+      return (
+        <pre className="my-1 overflow-x-auto rounded bg-slate-100 p-2 text-xs">
+          <code className={cls}>{children}</code>
+        </pre>
+      );
+    }
     default:
       return children;
   }

@@ -130,3 +130,49 @@ describe('detectAiGaps', () => {
     expect(gaps.some((g) => g.kind === 'orphan-node' && g.nodeIds.includes('n_b'))).toBe(true);
   });
 });
+
+describe('extractNodePlainText 非 Tiptap 块型鸭子类型', () => {
+  it('equation 数据提取 source 字段', () => {
+    expect(extractNodePlainText({ kind: 'equation', source: 'E=mc^2' })).toBe('E=mc^2');
+  });
+
+  it('bookmark 数据优先取 url，其次 title', () => {
+    expect(extractNodePlainText({ url: 'https://example.com', title: '示例页面' })).toBe('https://example.com');
+    expect(extractNodePlainText({ title: '仅标题' })).toBe('仅标题');
+  });
+
+  it('attachment 数据取 name 字段', () => {
+    expect(extractNodePlainText({ assetRef: 'abc', name: '报告.pdf' })).toBe('报告.pdf');
+  });
+
+  it('reminder 数据取 note 字段', () => {
+    expect(extractNodePlainText({ dueAt: 1700000000, note: '周一开会' })).toBe('周一开会');
+  });
+
+  it('Tiptap 文本节点提取结果不变（回归）', () => {
+    const tiptapDoc = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Hello ' }, { type: 'text', text: 'world' }] },
+      ],
+    };
+    expect(extractNodePlainText(tiptapDoc)).toBe('Hello world');
+  });
+
+  it('Tiptap 纯文本叶子节点提取结果不变（回归）', () => {
+    expect(extractNodePlainText({ type: 'text', text: '单行文字' })).toBe('单行文字');
+  });
+
+  it('空对象 / null / 非对象安全返回空串', () => {
+    expect(extractNodePlainText({})).toBe('');
+    expect(extractNodePlainText(null)).toBe('');
+    expect(extractNodePlainText(undefined)).toBe('');
+    expect(extractNodePlainText('字符串')).toBe('');
+    expect(extractNodePlainText(42)).toBe('');
+  });
+
+  it('空字符串字段不被收集', () => {
+    expect(extractNodePlainText({ source: '', url: 'https://ok.com' })).toBe('https://ok.com');
+    expect(extractNodePlainText({ source: '   ' })).toBe('');
+  });
+});

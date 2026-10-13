@@ -12,6 +12,7 @@ import { TiptapStatic } from './render/tiptap-static';
 import { sheetSizePx, pageNumberLabel } from './layout-utils';
 import { buildEdgePath } from '../editor/edges/edge-geometry';
 import { useResolvedImageSrc } from '../editor/nodes/use-resolved-image';
+import { renderEquation } from '../editor/tiptap/katex-html';
 import { db } from '../storage/db';
 
 /** 打印/PDF 里的图片节点：把 assetRef 解析成 objectURL 后渲染 <img>，
@@ -27,6 +28,21 @@ function PrintNodeImage({ src, alt }: { src: string; alt?: string }) {
       draggable={false}
     />
   );
+}
+
+/** 公式块导出渲染：KaTeX 已由 useExportModel 预加载；失败时降级为等宽源码，绝不空白。 */
+function PrintEquationBlock({ source, gray }: { source: string; gray?: boolean }) {
+  try {
+    const html = renderEquation(source);
+    return <div className="equation-html w-full py-1 text-center" dangerouslySetInnerHTML={{ __html: html }} />;
+  } catch {
+    // KaTeX 未加载（导出前预加载失败）：至少展示 LaTeX 源码，绝不空白。
+    return (
+      <div className="py-2 text-center font-mono text-xs" style={{ color: gray ? '#666' : '#475569' }}>
+        {source}
+      </div>
+    );
+  }
 }
 
 /** 续接标记圆圈半径（px）。 */
@@ -194,9 +210,18 @@ export function PrintSheets({ result, doc, settings, edgeLabelsVisible }: PrintS
                   const n = nodeById.get(id);
                   if (!n) return null;
                   const emb = parseDocEmbedData(n.content.data);
+                  const eqSource = n.type === 'equation'
+                    ? (n.content.data as { source?: string } | undefined)?.source ?? ''
+                    : null;
                   return (
                     <div key={id} data-node-id={id} className="mb-3 rounded border p-2">
-                      {emb ? <PrintEmbedBlock embed={emb} gray={gray} /> : <TiptapStatic doc={n.content.data} gray={gray} />}
+                      {emb ? (
+                        <PrintEmbedBlock embed={emb} gray={gray} />
+                      ) : eqSource !== null ? (
+                        eqSource ? <PrintEquationBlock source={eqSource} gray={gray} /> : null
+                      ) : (
+                        <TiptapStatic doc={n.content.data} gray={gray} />
+                      )}
                     </div>
                   );
                 })}
@@ -223,6 +248,10 @@ export function PrintSheets({ result, doc, settings, edgeLabelsVisible }: PrintS
                       {(() => {
                         const emb = parseDocEmbedData(n.content.data);
                         if (emb) return <PrintEmbedBlock embed={emb} gray={gray} />;
+                        if (n.type === 'equation') {
+                          const src = (n.content.data as { source?: string } | undefined)?.source ?? '';
+                          return src ? <PrintEquationBlock source={src} gray={gray} /> : null;
+                        }
                         return (
                           <>
                             <TiptapStatic doc={n.content.data} gray={gray} />

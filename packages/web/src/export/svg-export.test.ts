@@ -98,3 +98,24 @@ describe('buildPagesSvg 图片内嵌（Wave7 P2.1）', () => {
     expect(svg).not.toContain('href="asset_abc"');
   });
 });
+
+describe('buildPagesSvg 非 Tiptap 块型文本提取', () => {
+  function equationDoc(): KBNoteDoc {
+    const d = doc();
+    (d.nodes[0] as { type: string }).type = 'equation';
+    (d.nodes[0] as { content: { data: unknown } }).content.data = { kind: 'equation', source: 'E=mc^2' };
+    return d;
+  }
+
+  it('equation 块导出 LaTeX 源码文本（不空白）', () => {
+    const [svg] = buildPagesSvg(result(), equationDoc(), { orientation: 'portrait' });
+    expect(svg).toContain('E=mc^2');
+  });
+
+  it('空 source 的 equation 块不崩溃', () => {
+    const d = equationDoc();
+    (d.nodes[0] as { content: { data: unknown } }).content.data = { kind: 'equation', source: '' };
+    const [svg] = buildPagesSvg(result(), d, { orientation: 'portrait' });
+    expect(svg).toContain('<svg');
+  });
+});

@@ -24,6 +24,8 @@ import { buildExportFileName } from './filename';
 import { deliverExportFile } from './deliver';
 import { pushToast } from '@/panels/lib/toast';
 import { db } from '@/storage/db';
+import { ensureKatex } from '../editor/tiptap/katex-html';
+import { ensureHighlighter } from '../editor/tiptap/highlight';
 
 const EMPTY_RESULT: PaginateResult = { pages: [], orphans: [], totalPages: 0, notes: [] };
 
@@ -122,6 +124,9 @@ export function useExportModel(api: PanelsApi): {
 
   const afterSheetsRender = React.useCallback(
     async (job: () => Promise<void>) => {
+      // 预加载懒加载资源（KaTeX / 代码高亮），使离屏 PrintSheets 能同步渲染公式与代码块。
+      // 失败不阻断导出——PrintSheets 内有降级（公式退化为等宽源码，代码块退化为纯文本 pre）。
+      await Promise.allSettled([ensureKatex(), ensureHighlighter()]);
       setSheetsVisible(true);
       // 等 React 把 <PrintSheets/> 提交到 DOM 后再取 sheet 元素。
       await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 80)));
